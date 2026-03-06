@@ -132,3 +132,46 @@ using Unitful
         end
     end
 end
+
+using BenchmarkTools
+
+
+function compute_inplace!(d, src1, src2)
+    d .= src1 .+ src2
+    return nothing
+end
+
+@testset "Performance & Compiler Magic" begin
+    x = HeterogeneousVector(a = 1.0u"m", b = [2.0u"m", 3.0u"m"])
+    y = HeterogeneousVector(a = 4.0u"m", b = [5.0u"m", 6.0u"m"])
+
+    @testset "Cleaner Type Stability Tests" begin
+        get_a(v) = v.a
+        get_b(v) = v.b
+
+        @test (@inferred get_a(x)) isa Unitful.AbstractQuantity
+        @test (@inferred get_b(x)) isa AbstractVector
+
+        # Broadcast Inference (Materialization)
+        # This checks if x .+ y returns a HeterogeneousVector at compile-time
+        add_vecs(v1, v2) = v1 .+ v2
+        @test (@inferred add_vecs(x, y)) isa HeterogeneousVector
+
+        # Complex Fusion Inference
+        # This checks the "Magic" of BcInfo and unpack_broadcast
+        f_fused(v1, v2) = @. exp(v1 / 1.0u"m") + v2 / 1.0u"m"
+        @test (@inferred f_fused(x, y)) isa HeterogeneousVector
+    end
+
+    @testset "Zero-Allocation In-Place Updates" begin
+        dest = zero(x)
+        compute_inplace!(dest, x, y) # Warmup
+        
+        # Use $ to interpolate variables into the benchmark
+        b = @benchmarkable compute_inplace!($dest, $x, $y)
+        res = run(b)
+        
+        # This confirms no 'boxing' or runtime dispatch is happening
+        @test res.allocs == 0
+    end
+end
