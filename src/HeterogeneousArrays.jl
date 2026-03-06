@@ -336,11 +336,21 @@ end
 _zero_field(field::Ref) = Ref(zero(_unwrap(field)))
 _zero_field(field::AbstractArray) = zero(field)
 
+
 _similar_field(field::Ref) = Ref(zero(_unwrap(field)))
-_similar_field(field::AbstractArray) = similar(field)
 
 _similar_field(field::Ref, ::Type{ElType}) where {ElType} = Ref(zero(ElType))
-_similar_field(field::AbstractArray, ::Type{ElType}) where {ElType} = similar(field, ElType)
+
+
+# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+# check with Peder whether we want to fill the arrays with zeros or leave them uninitialized 
+# _similar_field(field::AbstractArray) = similar(field)
+_similar_field(field::AbstractArray) = zero(field) # zero() creates a clean copy of the same shape
+
+# _similar_field(field::AbstractArray, ::Type{ElType}) where {ElType} = similar(field, ElType)
+_similar_field(field::AbstractArray, ::Type{ElType}) where {ElType} = fill!(similar(field, ElType), zero(ElType))
+# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
 
 function Base.similar(hv::HeterogeneousVector{T}) where {T}
     similar_x = map(_zero_field, NamedTuple(hv))
@@ -395,6 +405,26 @@ function Base.similar(
     end
     HeterogeneousVector(similar_x)
 end
+
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+# Check with Peder whether this is still in line with his plans for the API, as this is a bit of an edge case and we might want to throw an error instead
+function Base.similar(hv::HeterogeneousVector, ::Type{ElType}) where {ElType}
+    similar_x = map(NamedTuple(hv)) do field
+        _similar_field(field, ElType)
+    end
+    return HeterogeneousVector(similar_x)
+end
+# This override is critical for the AbstractArray interface.
+# Without it, operations that change the element type (e.g., Int * Float)
+# would cause the HeterogeneousVector to 'collapse' into a standard, 
+# flat Julia Array, losing all named field access and segmented structure.
+function Base.similar(hv::AbstractHeterogeneousVector, ::Type{ElType}) where {ElType}
+    # Recursively allocate new storage (Ref or Array) for each field 
+    # using the new element type, preserving the original field names.
+    new_fields = map(f -> _similar_field(f, ElType), NamedTuple(hv))
+    return HeterogeneousVector(new_fields)
+end
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 mutable struct BcInfo{BcStyle <: Broadcast.BroadcastStyle}
     f::Function

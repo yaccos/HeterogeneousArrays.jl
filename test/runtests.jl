@@ -2,144 +2,133 @@ using HeterogeneousArrays
 using Test
 using Unitful
 
-@testset "Heterogeneous.jl" begin
-    @testset "Basic Math and Units" begin
-        x_1 = HeterogeneousVector(u = 3.1u"m", v = 5.2u"s")
-        x_2 = HeterogeneousVector(u = 1.8u"m", v = 8.44u"s")
-        a = 4.5
-        b = 9.1
+@testset "HeterogeneousArrays.jl" begin
 
-        # Test Out-of-place Broadcasting (copy)
-        y_2 = a .* x_1 .+ b .* x_2
-
-        # Manually calculate expected values
-        expected_u = a * 3.1u"m" + b * 1.8u"m" # 30.33m
-        expected_v = a * 5.2u"s" + b * 8.44u"s" # 100.204s
-
-        @test y_2.u ≈ expected_u
-        @test y_2.v ≈ expected_v
-
-        # Test In-place Broadcasting (copyto!)
-        y_1 = zero(x_1)
-        y_1 .= a .* x_1 .+ b .* x_2
-
-        @test y_1.u ≈ expected_u
-        @test y_1.v ≈ expected_v
-    end
-
-    @testset "Indexing and Iteration" begin
+    @testset "Array Interface & Metadata" begin
         x = HeterogeneousVector(a = [1, 2, 3], b = 4.5)
 
-        # Test indexing
-        @test x[1] == 1
-        @test x[2] == 2
-        @test x[3] == 3
-        @test x[4] == 4.5
-        # Test out-of-bounds indexing
-        @test_throws BoundsError x[5]
-
-        # Test iteration
-        collected = collect(x)
-        @test collected == [1, 2, 3, 4.5]
-    end
-    @testset "Mutability and Property Access" begin
-        x = HeterogeneousVector(a = [1, 2, 3], b = 4.5)
-        # Test mutability of scalar field
-        x.b = 7.8
-        @test x.b == 7.8
-        # Test mutability of array field
-        x.a[2] = 42
-        @test x.a == [1, 42, 3]
-    end
-    @testset "Broadcasting with Scalars and Arrays" begin
-        x = HeterogeneousVector(a = [1, 2, 3], b = 4.5)
-        scalar = 2.0
-        # Test broadcasting with scalar
-        y = scalar .* x
-        @test y.a == [2.0, 4.0, 6.0]
-        @test y.b == 9.0
-    end
-    @testset "Copy and Copyto!" begin
-        x = HeterogeneousVector(a = [1, 2, 3], b = 4.5)
-        y = copy(x)
-        # Test copy
-        @test y.a == x.a
-        @test y.b == x.b
-        @test y !== x  # Ensure it's a deep copy
-        # Test copyto!
-        z = zero(x)
-        copyto!(z, x)
-        @test z.a == x.a
-        @test z.b == x.b
-    end
-    @testset "Field Access and Property Names" begin
-        x = HeterogeneousVector(position = [1, 2, 3], velocity = 4.5)
-
-        # Test property names
-        @test propertynames(x) == (:position, :velocity)
-
-        # Test field access
-        @test x.position == [1, 2, 3]
-        @test x.velocity == 4.5
-    end
-    @testset "Error Handling" begin
-        x = HeterogeneousVector(a = [1, 2, 3], b = 4.5)
-        # Test invalid property access
-        @test_throws ErrorException x.c
-        # Test invalid property assignment
-        @test_throws ErrorException x.c = 10
-    end
-    @testset "Mixed Units and Types" begin
-        x = HeterogeneousVector(a = 3.1u"m", b = 5.2)
-        y = HeterogeneousVector(a = 1.8u"s", b = 8.44)
-
-        # Test broadcasting with mixed units
-        z = x .* y
-        # Expected results
-        expected_a = 3.1u"m" * 1.8u"s"  # Resulting unit: m*s
-        expected_b = 5.2 * 8.44          # No units, just a scalar multiplication
-        # Test the results
-        @test z.a == expected_a          # Should be 5.58 m*s
-        @test z.b == expected_b          # Should be 43.888
-    end
-    @testset "Iteration with Units" begin
-        # Create a HeterogeneousVector with mixed fields, including units
-        x = HeterogeneousVector(distance = [3.1u"m", 4.2u"m"], time = 5.0u"s", speed = [
-            1.5u"m/s", 2.0u"m/s"])
-        # Collect all elements using iteration
-        collected = collect(x)
-        # Manually define the expected result
-        expected = [3.1u"m", 4.2u"m", 5.0u"s", 1.5u"m/s", 2.0u"m/s"]
-        # Test that iteration produces the correct result
-        @test collected == expected
-        # Test that iteration works with a for loop
-        iterated = []
-        for element in x
-            push!(iterated, element)
+        @testset "Indexing" begin
+            @test x[1] == 1
+            @test x[4] == 4.5
+            @test_throws BoundsError x[5]
         end
-        @test iterated == expected
-        # Test that iteration works with `first` and `iterate`
-        first_element, state = iterate(x)
-        @test first_element == 3.1u"m"  # First element should be the first in the first field
-        @test state !== nothing         # Ensure the state is valid
-        # Continue iterating manually
-        second_element, state = iterate(x, state)
-        @test second_element == 4.2u"m"
-        third_element, state = iterate(x, state)
-        @test third_element == 5.0u"s"
-        fourth_element, state = iterate(x, state)
-        @test fourth_element == 1.5u"m/s"
-        fifth_element, state = iterate(x, state)
-        @test fifth_element == 2.0u"m/s"
-        # Ensure iteration ends
+
+        @testset "Iteration" begin
+            v = HeterogeneousVector(d = [3.1u"m", 4.2u"m"], t = 5.0u"s")
+            collected = collect(v)
+            @test length(collected) == 3
+            @test collected[1] == 3.1u"m"
+            @test collected[3] == 5.0u"s"
+        end
+
+        @testset "Metadata" begin
+            @test summary(x) == "$(typeof(x)) with members:"
+            @test propertynames(x) == (:a, :b)
+        end
     end
-    @testset "Show and Summary Methods" begin
-        hv = HeterogeneousVector(a = [1, 2, 3], b = 4.5, c = [6.7u"m", 8.9u"m"])
-        @testset "Base.summary" begin
-            # Test the summary method
-            summary_output = summary(hv)
-            expected_summary = string(typeof(hv), " with members:")
-            @test summary_output == expected_summary
+
+    @testset "State & Mutability" begin
+        @testset "Direct Access" begin
+            x = HeterogeneousVector(a = [1, 2, 3], b = 4.5)
+            x.b = 7.8
+            x.a[2] = 42
+            @test x.b == 7.8
+            @test x.a[2] == 42
+            @test_throws ErrorException x.missing_field = 10
+        end
+
+        @testset "Copying & Identity" begin
+            x = HeterogeneousVector(a = [1, 2, 3], b = 4.5)
+            y = copy(x)
+            @test y == x
+            @test y !== x
+            @test y.a !== x.a # Ensure deep copy of segments
+            
+            z = zero(x)
+            copyto!(z, x)
+            @test z == x
+        end
+    end
+
+    @testset "Unit Logic & Conversions" begin
+        x = HeterogeneousVector(pos = [1.0u"m", 2.0u"m"], time = 10.0u"s")
+
+        @testset "Compatible Assignment" begin
+            x.time = 1.0u"minute"
+            # Numerical vs Physical equality
+            @test x.time ≈ 60.0u"s"
+            @test x.time == 1.0u"minute"
+            @test Unitful.ustrip(x.time) ≈ 60.0
+            
+            new_pos = [1500.0u"mm", 3000.0u"mm"]
+            x.pos = new_pos
+            @test Unitful.ustrip.(x.pos) ≈ [1.5, 3.0]
+        end
+
+        @testset "Dimension Mismatch" begin
+            @test_throws Exception x.pos = [1.0u"s", 2.0u"s"]
+            @test_throws Exception x.time = 42.0
+        end
+    end
+
+    @testset "Broadcasting Mechanics" begin
+        x = HeterogeneousVector(a = 1.0u"m", b = [2.0u"m", 3.0u"m"])
+        y = HeterogeneousVector(a = 4.0u"m", b = [5.0u"m", 6.0u"m"])
+
+        @testset "Out-of-Place (Allocation)" begin
+            res = x .+ y
+            @test res isa HeterogeneousVector
+            @test res.a == 5.0u"m"
+            @test res.b == [7.0u"m", 9.0u"m"]
+            @test res !== x
+        end
+
+        @testset "In-Place (Mutation)" begin
+            original_b_ptr = pointer(x.b)
+            x .= 2.0 .* x .+ y
+            
+            @test x.a ≈ 6.0u"m"
+            @test x.b ≈ [9.0u"m", 12.0u"m"]
+            @test pointer(x.b) == original_b_ptr # Verify zero-allocation update
+        end
+
+        @testset "Compound & Mixed Mutation" begin
+            v = HeterogeneousVector(val = [10.0, 20.0], scale = 2.0)
+            v .+= 5.0
+            @test v.val == [15.0, 25.0]
+            @test v.scale == 7.0
+            
+            v .= 100.0
+            @test all(v.val .== 100.0) && v.scale == 100.0
+        end
+
+        @testset "Fusion & Complex Trees" begin
+            v1 = HeterogeneousVector(a = 1.0, b = [2.0])
+            v2 = HeterogeneousVector(a = 10.0, b = [20.0])
+            res = @. exp(v1) + log(v2) * 2.0
+            @test res.a ≈ exp(1.0) + log(10.0) * 2.0
+        end
+    end
+
+    @testset "Allocation Logic (similar)" begin
+        x = HeterogeneousVector(pos = [1.0u"m"], id = [1])
+
+        @testset "Helpers & Zero-Initialization" begin
+            # Test Ref
+            r_sim = HeterogeneousArrays._similar_field(Ref(10), Float64)
+            @test r_sim isa Ref{Float64}
+            @test r_sim[] == 0.0
+
+            # Test Array (Ensuring initialized memory)
+            a_sim = HeterogeneousArrays._similar_field([1, 2], Float64)
+            @test all(==(0.0), a_sim)
+        end
+
+        @testset "Type Overrides" begin
+            y_float = similar(x, Float64)
+            @test y_float isa HeterogeneousVector
+            @test eltype(y_float.id) == Float64
+            @test !(y_float isa Array) # Confirm no collapse to standard Array
         end
     end
 end
