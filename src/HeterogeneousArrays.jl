@@ -341,7 +341,7 @@ _similar_field(field::Ref) = Ref(zero(_unwrap(field)))
 _similar_field(field::Ref, ::Type{ElType}) where {ElType} = Ref(zero(ElType))
 
 # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# check with Peder whether we want to fill the arrays with zeros or leave them uninitialized 
+# check with Jakob Peder Pettersen whether we want to fill the arrays with zeros or leave them uninitialized 
 # _similar_field(field::AbstractArray) = similar(field)
 _similar_field(field::AbstractArray) = zero(field) # zero() creates a clean copy of the same shape
 
@@ -406,7 +406,7 @@ function Base.similar(
 end
 
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# Check with Peder whether this is still in line with his plans for the API, as this is a bit of an edge case and we might want to throw an error instead
+# Check with Jakob Peder Pettersen whether this is still in line with his plans for the API, as this is a bit of an edge case and we might want to throw an error instead
 function Base.similar(hv::HeterogeneousVector, ::Type{ElType}) where {ElType}
     similar_x = map(NamedTuple(hv)) do field
         _similar_field(field, ElType)
