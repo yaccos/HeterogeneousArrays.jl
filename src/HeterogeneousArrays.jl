@@ -336,11 +336,9 @@ end
 _zero_field(field::Ref) = Ref(zero(_unwrap(field)))
 _zero_field(field::AbstractArray) = zero(field)
 
-
 _similar_field(field::Ref) = Ref(zero(_unwrap(field)))
 
 _similar_field(field::Ref, ::Type{ElType}) where {ElType} = Ref(zero(ElType))
-
 
 # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 # check with Peder whether we want to fill the arrays with zeros or leave them uninitialized 
@@ -348,9 +346,10 @@ _similar_field(field::Ref, ::Type{ElType}) where {ElType} = Ref(zero(ElType))
 _similar_field(field::AbstractArray) = zero(field) # zero() creates a clean copy of the same shape
 
 # _similar_field(field::AbstractArray, ::Type{ElType}) where {ElType} = similar(field, ElType)
-_similar_field(field::AbstractArray, ::Type{ElType}) where {ElType} = fill!(similar(field, ElType), zero(ElType))
+function _similar_field(field::AbstractArray, ::Type{ElType}) where {ElType}
+    fill!(similar(field, ElType), zero(ElType))
+end
 # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
 
 function Base.similar(hv::HeterogeneousVector{T}) where {T}
     similar_x = map(_zero_field, NamedTuple(hv))
