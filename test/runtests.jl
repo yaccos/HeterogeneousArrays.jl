@@ -3,7 +3,6 @@ using Test
 using Unitful
 
 @testset "HeterogeneousArrays.jl" begin
-
     @testset "Array Interface & Metadata" begin
         x = HeterogeneousVector(a = [1, 2, 3], b = 4.5)
 
@@ -43,7 +42,7 @@ using Unitful
             @test y == x
             @test y !== x
             @test y.a !== x.a # Ensure deep copy of segments
-            
+
             z = zero(x)
             copyto!(z, x)
             @test z == x
@@ -59,7 +58,7 @@ using Unitful
             @test x.time ≈ 60.0u"s"
             @test x.time == 1.0u"minute"
             @test Unitful.ustrip(x.time) ≈ 60.0
-            
+
             new_pos = [1500.0u"mm", 3000.0u"mm"]
             x.pos = new_pos
             @test Unitful.ustrip.(x.pos) ≈ [1.5, 3.0]
@@ -86,7 +85,7 @@ using Unitful
         @testset "In-Place (Mutation)" begin
             original_b_ptr = pointer(x.b)
             x .= 2.0 .* x .+ y
-            
+
             @test x.a ≈ 6.0u"m"
             @test x.b ≈ [9.0u"m", 12.0u"m"]
             @test pointer(x.b) == original_b_ptr # Verify zero-allocation update
@@ -97,7 +96,7 @@ using Unitful
             v .+= 5.0
             @test v.val == [15.0, 25.0]
             @test v.scale == 7.0
-            
+
             v .= 100.0
             @test all(v.val .== 100.0) && v.scale == 100.0
         end
@@ -135,43 +134,56 @@ end
 
 using BenchmarkTools
 
-
 function compute_inplace!(d, src1, src2)
     d .= src1 .+ src2
     return nothing
 end
 
-@testset "Performance & Compiler Magic" begin
+@testset "Performance & Static Dispatch Validation" begin
     x = HeterogeneousVector(a = 1.0u"m", b = [2.0u"m", 3.0u"m"])
     y = HeterogeneousVector(a = 4.0u"m", b = [5.0u"m", 6.0u"m"])
 
-    @testset "Cleaner Type Stability Tests" begin
+    @testset "Type Stability & Inference" begin
         get_a(v) = v.a
         get_b(v) = v.b
 
+        # @inferred confirms that the return type is predicted by the compiler 
+        # BEFORE the code runs. If the compiler "guesses" it might be several types 
+        # (Type Instability), @inferred will fail.
         @test (@inferred get_a(x)) isa Unitful.AbstractQuantity
         @test (@inferred get_b(x)) isa AbstractVector
 
         # Broadcast Inference (Materialization)
-        # This checks if x .+ y returns a HeterogeneousVector at compile-time
+        # We test if the custom broadcasting machinery (dot-addition) 
+        # allows the compiler to know that adding two HeterogeneousVectors 
+        # results in exactly another HeterogeneousVector, rather than a generic Array.
         add_vecs(v1, v2) = v1 .+ v2
         @test (@inferred add_vecs(x, y)) isa HeterogeneousVector
 
         # Complex Fusion Inference
-        # This checks the "Magic" of BcInfo and unpack_broadcast
+        # This is the ultimate test for custom broadcast implementations.
+        # It checks if the compiler can "see through" the math (exp, division, addition)
+        # and realize the final structure is still a stable HeterogeneousVector.
+        # This ensures 'Loop Fusion' is working without losing type information.
         f_fused(v1, v2) = @. exp(v1 / 1.0u"m") + v2 / 1.0u"m"
         @test (@inferred f_fused(x, y)) isa HeterogeneousVector
     end
 
     @testset "Zero-Allocation In-Place Updates" begin
+        # Pre-allocate destination to test memory efficiency.
         dest = zero(x)
-        compute_inplace!(dest, x, y) # Warmup
-        
-        # Use $ to interpolate variables into the benchmark
+        compute_inplace!(dest, x, y) # Warmup to ensure JIT compilation is finished.
+
+        # We interpolate ($) variables so the benchmark doesn't include the cost
+        # of looking up global variable names. We want to measure only the math.
         b = @benchmarkable compute_inplace!($dest, $x, $y)
         res = run(b)
-        
-        # This confirms no 'boxing' or runtime dispatch is happening
+
+        # THE GOLD STANDARD TEST: 
+        # res.allocs == 0 proves that no 'boxing' or 'runtime dispatch' occurred.
+        # 'Boxing' happens when Julia isn't sure of a type and has to wrap data 
+        # in a generic box at runtime, which costs memory and time.
+        # 0 allocations means the code is running as fast as C.
         @test res.allocs == 0
     end
 end
