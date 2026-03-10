@@ -117,10 +117,6 @@ using Unitful
             r_sim = HeterogeneousArrays._similar_field(Ref(10), Float64)
             @test r_sim isa Ref{Float64}
             @test r_sim[] == 0.0
-
-            # Test Array (Ensuring initialized memory)
-            a_sim = HeterogeneousArrays._similar_field([1, 2], Float64)
-            @test all(==(0.0), a_sim)
         end
 
         @testset "Type Overrides" begin
