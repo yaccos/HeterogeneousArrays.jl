@@ -139,30 +139,47 @@ end
     x = HeterogeneousVector(a = 1.0u"m", b = [2.0u"m", 3.0u"m"])
     y = HeterogeneousVector(a = 4.0u"m", b = [5.0u"m", 6.0u"m"])
 
-    @testset "Type Stability & Inference" begin
+    @testset "Type Stability & Inference (Concrete)" begin
+        type_a = typeof(x.a)
+        type_b = typeof(x.b)
+        type_hv = typeof(x)
+
         get_a(v) = v.a
         get_b(v) = v.b
 
-        # @inferred confirms that the return type is predicted by the compiler 
-        # BEFORE the code runs. If the compiler "guesses" it might be several types 
-        # (Type Instability), @inferred will fail.
-        @test (@inferred get_a(x)) isa Unitful.AbstractQuantity
-        @test (@inferred get_b(x)) isa AbstractVector
+        # 1. Field Access: Verify exact concrete types
+        # If the compiler inferred Vector{Any}, these will fail.
+        @test (@inferred get_a(x)) isa type_a
+        @test (@inferred get_b(x)) isa type_b
 
-        # Broadcast Inference (Materialization)
-        # We test if the custom broadcasting machinery (dot-addition) 
-        # allows the compiler to know that adding two HeterogeneousVectors 
-        # results in exactly another HeterogeneousVector, rather than a generic Array.
+        # 2. Broadcast Inference: Verify the container and its full type parameters
+        # This checks that Names, T, and S (the NamedTuple storage) are all preserved.
         add_vecs(v1, v2) = v1 .+ v2
-        @test (@inferred add_vecs(x, y)) isa HeterogeneousVector
+        @test (@inferred add_vecs(x, y)) isa type_hv
 
-        # Complex Fusion Inference
-        # This is the ultimate test for custom broadcast implementations.
-        # It checks if the compiler can "see through" the math (exp, division, addition)
-        # and realize the final structure is still a stable HeterogeneousVector.
-        # This ensures 'Loop Fusion' is working without losing type information.
+        # 3. Complex Fusion: The most rigorous test
+        # We check if the result of math operations is still fully inferable
+        # to the exact same HeterogeneousVector type.
         f_fused(v1, v2) = @. exp(v1 / 1.0u"m") + v2 / 1.0u"m"
-        @test (@inferred f_fused(x, y)) isa HeterogeneousVector
+
+        # We use 'typeof' on a manual execution to get the target for the inference test
+        expected_result_type = typeof(f_fused(x, y))
+        @test (@inferred f_fused(x, y)) isa expected_result_type
+    end
+
+    @testset "Concrete Type Structural Validation" begin
+        x = HeterogeneousVector(a = 1.0u"m", b = [2.0u"m", 3.0u"m"])
+
+        ConcreteVectorType = Vector{Unitful.Quantity{Float64, Unitful.𝐋, typeof(u"m")}}
+
+        # Use a local function to avoid the 'Global Scope' inference trap
+        get_b(hv) = hv.b
+
+        @test (@inferred get_b(x)) isa ConcreteVectorType
+
+        get_a_raw(hv) = getfield(NamedTuple(hv), :a)
+        ConcreteRefType = Base.RefValue{Unitful.Quantity{Float64, Unitful.𝐋, typeof(u"m")}}
+        @test (@inferred get_a_raw(x)) isa ConcreteRefType
     end
 
     @testset "Zero-Allocation In-Place Updates" begin
