@@ -183,3 +183,45 @@ end
         @test res.allocs == 0
     end
 end
+
+@testset "Advanced Allocation Logic (Multi-Type similar)" begin
+    # pos is Vector{Length}, id is Vector{Int}
+    x = HeterogeneousVector(pos = [1.0, 2.0]u"m", id = [10, 20])
+
+    @testset "Variadic Type Overrides" begin
+        y = @inferred similar(x, Float32, Int16)
+        @test eltype(y.pos) === Float32
+        @test eltype(y.id) === Int16
+        @test y isa HeterogeneousVector
+    end
+
+    @testset "Unitful Type Overrides" begin
+        # Get the dimension safely
+        L_dim = dimension(u"m")
+        # Define the exact Quantity type we expect
+        # We use u"m" directly in the type construction for clarity
+        TargetUnitType = Quantity{Float64, L_dim, typeof(u"m")}
+        
+        y = @inferred similar(x, TargetUnitType, Float64)
+        
+        @test y isa HeterogeneousVector
+        # Test the eltype directly (this is usually more stable)
+        @test eltype(y.pos) === TargetUnitType
+        @test eltype(y.id) === Float64
+        
+        # To avoid the 'showrep' bug if this fails, we check the unit 
+        # by converting it to a string or comparing to a simple unit.
+        @test unit(y.pos[1]) === u"m"
+    end
+
+    @testset "Uniform Override" begin
+        y = @inferred similar(x, Float64)
+        @test eltype(y.pos) === Float64
+        @test eltype(y.id) === Float64
+    end
+
+    @testset "Error Handling" begin
+        # Provide 3 types for 2 fields -> Should throw DimensionMismatch
+        @test_throws DimensionMismatch similar(x, Float64, Int, Bool)
+    end
+end

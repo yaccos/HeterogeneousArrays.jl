@@ -400,21 +400,80 @@ end
 
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 # Check with Jakob Peder Pettersen whether this is still in line with his plans for the API, as this is a bit of an edge case and we might want to throw an error instead
+
+
+"""
+    Base.similar(hv::HeterogeneousVector, ::Type{T}, ::Type{S}, R::DataType...)
+
+Construct a new `HeterogeneousVector` with the same structure and field names as `hv`, 
+but with potentially different element types for each individual field.
+
+This variadic method allows for "per-field" type specialization, similar to `ArrayPartition` 
+in `RecursiveArrayTools`. It is particularly useful when you need to maintain 
+heterogeneity (e.g., keeping one field as an `Int` while converting another to a `Float64`).
+
+# Arguments
+- `hv`: The template `HeterogeneousVector`.
+- `T`, `S`, `R...`: A sequence of types. The total number of types provided must 
+  exactly match the number of fields in `hv`.
+
+# Returns
+- A `HeterogeneousVector` where the i-th field has the i-th provided type. 
+  Note that memory is uninitialized (via `similar`).
+
+# Errors
+- Throws a `DimensionMismatch` if the number of types provided does not match the 
+  number of fields in the vector.
+
+# Implementation Note
+This function uses `ntuple` with a compile-time length to ensure the resulting 
+`NamedTuple` is type-inferred correctly by the Julia compiler.
+"""
+function Base.similar(hv::HeterogeneousVector, ::Type{T}, ::Type{S}, R::DataType...) where {T, S}
+    new_types = (T, S, R...)
+    names = propertynames(hv)
+    
+    if length(new_types) != length(names)
+        throw(DimensionMismatch("Number of types ($(length(new_types))) must match number of fields ($(length(names)))"))
+    end
+
+    # Use ntuple for type-stable indexing
+    new_fields_tuple = ntuple(length(names)) do i
+        field = getfield(NamedTuple(hv), names[i])
+        _similar_field(field, new_types[i])
+    end
+
+    return HeterogeneousVector(NamedTuple{names}(new_fields_tuple))
+end
+
+"""
+    Base.similar(hv::HeterogeneousVector, ::Type{ElType})
+
+Construct a new `HeterogeneousVector` with the same structure and field names as `hv`, 
+but with all fields converted to the same uniform element type `ElType`.
+
+This method satisfies the standard `AbstractArray` interface. It is essential for 
+ensuring that broadcasting operations (e.g., `hv .* 1.0`) return a `HeterogeneousVector` 
+rather than collapsing into a standard flat `Array`.
+
+# Arguments
+- `hv`: The template `HeterogeneousVector`.
+- `ElType`: The target type for all segments/fields within the new vector.
+
+# Returns
+- A `HeterogeneousVector` where every field's elements are of type `ElType`.
+
+# Implementation Note
+Uses `map` over the field names to recursively call `_similar_field` on each segment, 
+preserving the original `NamedTuple` keys.
+"""
 function Base.similar(hv::HeterogeneousVector, ::Type{ElType}) where {ElType}
-    similar_x = map(NamedTuple(hv)) do field
+    names = propertynames(hv)
+    new_fields = map(names) do name
+        field = getfield(NamedTuple(hv), name)
         _similar_field(field, ElType)
     end
-    return HeterogeneousVector(similar_x)
-end
-# This override is critical for the AbstractArray interface.
-# Without it, operations that change the element type (e.g., Int * Float)
-# would cause the HeterogeneousVector to 'collapse' into a standard, 
-# flat Julia Array, losing all named field access and segmented structure.
-function Base.similar(hv::AbstractHeterogeneousVector, ::Type{ElType}) where {ElType}
-    # Recursively allocate new storage (Ref or Array) for each field 
-    # using the new element type, preserving the original field names.
-    new_fields = map(f -> _similar_field(f, ElType), NamedTuple(hv))
-    return HeterogeneousVector(new_fields)
+    return HeterogeneousVector(NamedTuple{names}(new_fields))
 end
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
