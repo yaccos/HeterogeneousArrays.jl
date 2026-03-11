@@ -225,3 +225,26 @@ end
         @test_throws DimensionMismatch similar(x, Float64, Int, Bool)
     end
 end
+
+@testset "Zero-Initialization" begin
+    # pos is Vector{Length}, id is Vector{Int}
+    x = HeterogeneousVector(pos = [1.0, 2.0]u"m", id = [10, 20])
+    
+    # Generate the zero representation
+    z = @inferred zero(x)
+    
+    @test z isa HeterogeneousVector
+    @test propertynames(z) == (:pos, :id)
+    
+    # Check numerical values
+    @test all(z.pos .== 0.0u"m")
+    @test all(z.id .== 0)
+    
+    # Ensure types and units are strictly preserved
+    @test eltype(z.pos) === eltype(x.pos)
+    @test eltype(z.id) === eltype(x.id)
+    
+    # Ensure it is a new allocation (not a view/alias)
+    @test z.pos !== x.pos
+    @test z.id !== x.id
+end
