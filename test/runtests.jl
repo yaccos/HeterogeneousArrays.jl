@@ -279,3 +279,97 @@ end
     @test eltype(z.id) === Float64
     @test eltype(z.pos) === Float64
 end
+
+@testset "Reference vs Copy Behavior" begin
+    original_array = [1.0, 2.0, 3.0]
+    original_scalar = 42.0
+    
+    v = HeterogeneousVector(vec = original_array, scalar = original_scalar)
+    
+    @testset "Array Referencing" begin
+        # Modifying original should affect v
+        original_array[1] = 99.0
+        @test v.vec[1] == 99.0
+        
+        # Modifying v should affect original
+        v.vec[2] = -7.0
+        @test original_array[2] == -7.0
+        
+        # Verify they share the same memory location
+        @test pointer(v.vec) == pointer(original_array)
+    end
+    
+    @testset "Scalar Wrapping" begin
+        # Scalars are wrapped in Ref, so the original value (being immutable) 
+        # cannot be linked, but we should verify the Ref contains the value.
+        @test v.scalar == 42.0
+        
+        v.scalar = 100.0
+        @test original_scalar == 42.0 # Original local variable remains unchanged
+    end
+end
+
+@testset "Nested HeterogeneousVectors" begin
+    inner = HeterogeneousVector(x = [1.0, 2.0], y = 3.0)
+    outer = HeterogeneousVector(sub = inner, bulk = [10.0, 20.0])
+
+    @testset "Nested Access" begin
+        @test outer.sub.x[1] == 1.0
+        @test outer.sub.y == 3.0
+    end
+
+    @testset "Nested Broadcasting" begin
+        # Test addition across nested layers
+        res = outer .+ 1.0
+        
+        @test res isa HeterogeneousVector
+        @test res.sub isa HeterogeneousVector
+        
+        # Verify recursion reached the bottom
+        @test res.sub.x == [2.0, 3.0]
+        @test res.sub.y == 4.0
+        @test res.bulk == [11.0, 21.0]
+    end
+end
+
+function compute_nested!(d, o1, o2)
+    @. d = o1 + o2 * 2.0
+    return nothing
+end
+
+# @testset "Nested Performance & Zero-Allocation" begin
+#     # Construct a 2-level nested structure
+#     # Level 2 (Inner)
+#     inner1 = HeterogeneousVector(a = [1.0, 2.0], b = 3.0)
+#     inner2 = HeterogeneousVector(a = [4.0, 5.0], b = 6.0)
+#     
+#     # Level 1 (Outer)
+#     outer1 = HeterogeneousVector(sub = inner1, val = 10.0)
+#     outer2 = HeterogeneousVector(sub = inner2, val = 20.0)
+#     dest   = zero(outer1)
+#
+#     # 1. Warmup and Correctness
+#     compute_nested!(dest, outer1, outer2)
+#     @test dest.sub.a == [9.0, 12.0]
+#     @test dest.sub.b == 15.0
+#     @test dest.val   == 50.0
+#
+#     # 2. Benchmark for Allocations
+#     # Interpolate globals with $ to ensure we aren't measuring global lookups
+#     bench = @benchmarkable compute_nested!($dest, $outer1, $outer2)
+#     res = run(bench)
+#
+#     # If this is > 0, the recursion is hitting 'Any' or 'Box' types
+#     @test res.allocs == 0
+# end
+
+# @testset "Deep Nesting" begin
+#     # Create a 10-level deep nested structure
+#     v = HeterogeneousVector(x = 1.0)
+#     for i in 1:10
+#         v = HeterogeneousVector(inner = v, val = Float64(i))
+#     end
+#     
+#     # If this is inferred as a concrete type, recursion is working!
+#     @test !(@inferred(v .+ 1.0) isa Any)
+# end

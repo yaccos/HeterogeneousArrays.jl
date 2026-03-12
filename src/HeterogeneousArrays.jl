@@ -87,6 +87,12 @@ struct HeterogeneousVector{T, S <: NamedTuple} <: AbstractHeterogeneousVector{T,
 
     Scalar fields are automatically wrapped in `Ref` for mutability.
 
+    !!! note "Memory Behavior"
+    - **Scalars** are wrapped in a new `Ref`, effectively copying them into a mutable container.
+    - **Arrays** are stored by **reference**. Modifying the original array used to 
+      construct the vector will affect the `HeterogeneousVector` and vice versa. 
+      Use `copy(your_array)` during construction if independent storage is required.
+
     # Arguments
     - `x::NamedTuple`: The data to store
 
@@ -626,29 +632,59 @@ function Base.copy(bc::Broadcast.Broadcasted{Broadcast.Style{AbstractHeterogeneo
     HeterogeneousVector(NamedTuple{Names}(res_args))
 end
 
+# @inline Base.@constprop :aggressive function Base.copyto!(
+#         dest::AbstractHeterogeneousVector{T, S},
+#         bc::Broadcast.Broadcasted{
+#             Broadcast.Style{AbstractHeterogeneousVector{Names}}, Axes, F, Args}
+# ) where {T, S, Names, Axes, F, Args <: Tuple}
+#     if fieldnames(S) != Names
+#         throw(ArgumentError("Cannot copy to heterogeneous vector with different field names: $(fieldnames(S)) vs $(Names)"))
+#     end
+#     # Using value types to specialize map_fun is indeed an ugly solution
+#     # Constant propagation should **usually** make this unnecessary, but
+#     # benchmarking has shown there are cases where this does not happen (even with aggressive const propagation),
+#     # causing type unstability and costly runtime dispatch
+#     function map_fun(::Val{name}) where {name}
+#         target_field = getfield(NamedTuple(dest), name)
+#         bc_unpacked = unpack_broadcast(bc, Val(name))
+#         if target_field isa Ref
+#             target_field[] = Broadcast.materialize(bc_unpacked)
+#         else
+#             Broadcast.materialize!(target_field, bc_unpacked)
+#         end
+#     end
+#     map(map_fun, Val.(Names))
+#     dest
+# end
+
 @inline Base.@constprop :aggressive function Base.copyto!(
         dest::AbstractHeterogeneousVector{T, S},
         bc::Broadcast.Broadcasted{
             Broadcast.Style{AbstractHeterogeneousVector{Names}}, Axes, F, Args}
 ) where {T, S, Names, Axes, F, Args <: Tuple}
+    
     if fieldnames(S) != Names
-        throw(ArgumentError("Cannot copy to heterogeneous vector with different field names: $(fieldnames(S)) vs $(Names)"))
+        throw(ArgumentError("Field name mismatch: $(fieldnames(S)) vs $(Names)"))
     end
-    # Using value types to specialize map_fun is indeed an ugly solution
-    # Constant propagation should **usually** make this unnecessary, but
-    # benchmarking has shown there are cases where this does not happen (even with aggressive const propagation),
-    # causing type unstability and costly runtime dispatch
-    function map_fun(::Val{name}) where {name}
+
+    # Define map_fun as a named local function with an explicit @inline hint
+    @inline function map_field(::Val{name}) where {name}
         target_field = getfield(NamedTuple(dest), name)
         bc_unpacked = unpack_broadcast(bc, Val(name))
+        
         if target_field isa Ref
+            # Use @inline here too
             target_field[] = Broadcast.materialize(bc_unpacked)
         else
+            # This triggers the recursion for nested structures
             Broadcast.materialize!(target_field, bc_unpacked)
         end
+        return nothing
     end
-    map(map_fun, Val.(Names))
-    dest
+
+    # map over Val handles the unrolling
+    map(map_field, Val.(Names))
+    return dest
 end
 
 # Compute segment ranges for each field in the NamedTuple
