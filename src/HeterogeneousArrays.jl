@@ -475,6 +475,65 @@ function Base.similar(hv::HeterogeneousVector, ::Type{ElType}) where {ElType}
     end
     return HeterogeneousVector(NamedTuple{names}(new_fields))
 end
+
+"""
+    similar(hv::HeterogeneousVector; kwargs...)
+
+Construct a new `HeterogeneousVector` with the same field names and structure as `hv`, 
+optionally overriding the element types of specific fields.
+
+This method allows for high-level, name-based type transformation. If a field name is 
+provided as a keyword argument, the new vector will use the specified type for that 
+segment. Fields not mentioned in `kwargs` will preserve their original element types.
+
+# Arguments
+- `hv::HeterogeneousVector`: The template vector providing the names and structure.
+- `kwargs...`: Pairs of `fieldname = Type` used to redefine specific segments.
+
+# Returns
+- A `HeterogeneousVector` with uninitialized (or zeroed) data in the requested types.
+
+# Performance Note
+This implementation avoids `Dict` allocations by operating directly on the `kwargs` 
+NamedTuple, making it more efficient and "compiler-friendly" than dictionary-based lookups.
+
+# Example
+```jldoctest
+julia> using HeterogeneousArrays, Unitful
+
+julia> v = HeterogeneousVector(pos = [1.0, 2.0]u"m", id = [10, 20]);
+
+julia> # Change 'id' to Float64 and 'pos' to a different unit/type
+       v2 = similar(v, id = Float64, pos = Float32);
+
+julia> eltype(v2.id)
+Float64
+
+julia> eltype(v2.pos)
+Float32
+"""
+function Base.similar(hv::HeterogeneousVector{T, S}; kwargs...) where {T, S}
+    names = propertynames(hv)
+
+    # We create the new fields by looking into the 'kwargs' NamedTuple
+    new_fields_tuple = ntuple(length(names)) do i
+        name = names[i]
+        field = getfield(NamedTuple(hv), name)
+
+        # get(collection, key, default)
+        # If 'name' exists in kwargs, we get the value (the Type).
+        # If not, we get nothing.
+        target_type = get(kwargs, name, nothing)
+
+        if target_type !== nothing
+            return _similar_field(field, target_type)
+        else
+            return _similar_field(field)
+        end
+    end
+
+    return HeterogeneousVector(NamedTuple{names}(new_fields_tuple))
+end
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 mutable struct BcInfo{BcStyle <: Broadcast.BroadcastStyle}

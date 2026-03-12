@@ -265,3 +265,17 @@ end
     @test z.pos !== x.pos
     @test z.id !== x.id
 end
+
+@testset "Keyword-based similar" begin
+    x = HeterogeneousVector(pos = [1.0, 2.0]u"m", id = [10, 20])
+
+    # Override only one field
+    y = similar(x, id = Float32)
+    @test eltype(y.id) === Float32
+    @test eltype(y.pos) === eltype(x.pos) # Preserved
+
+    # Override multiple fields in arbitrary order
+    z = similar(x, id = Float64, pos = Float64)
+    @test eltype(z.id) === Float64
+    @test eltype(z.pos) === Float64
+end
