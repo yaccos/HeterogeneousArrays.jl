@@ -337,31 +337,22 @@ function compute_nested!(d, o1, o2)
     return nothing
 end
 
-# @testset "Nested Performance & Zero-Allocation" begin
-#     # Construct a 2-level nested structure
-#     # Level 2 (Inner)
-#     inner1 = HeterogeneousVector(a = [1.0, 2.0], b = 3.0)
-#     inner2 = HeterogeneousVector(a = [4.0, 5.0], b = 6.0)
-#     
-#     # Level 1 (Outer)
-#     outer1 = HeterogeneousVector(sub = inner1, val = 10.0)
-#     outer2 = HeterogeneousVector(sub = inner2, val = 20.0)
-#     dest   = zero(outer1)
-#
-#     # 1. Warmup and Correctness
-#     compute_nested!(dest, outer1, outer2)
-#     @test dest.sub.a == [9.0, 12.0]
-#     @test dest.sub.b == 15.0
-#     @test dest.val   == 50.0
-#
-#     # 2. Benchmark for Allocations
-#     # Interpolate globals with $ to ensure we aren't measuring global lookups
-#     bench = @benchmarkable compute_nested!($dest, $outer1, $outer2)
-#     res = run(bench)
-#
-#     # If this is > 0, the recursion is hitting 'Any' or 'Box' types
-#     @test res.allocs == 0
-# end
+@testset "Nested HeterogeneousVectors" begin
+    # Construct a 2-level nested structure
+    # Level 2 (Inner)
+    inner1 = HeterogeneousVector(a = [1.0, 2.0], b = 3.0)
+    inner2 = HeterogeneousVector(a = [4.0, 5.0], b = 6.0)
+
+    # Level 1 (Outer)
+    outer1 = HeterogeneousVector(sub = inner1, val = 10.0)
+    outer2 = HeterogeneousVector(sub = inner2, val = 20.0)
+    dest = zero(outer1)
+
+    compute_nested!(dest, outer1, outer2)
+    @test dest.sub.a == [9.0, 12.0]
+    @test dest.sub.b == 15.0
+    @test dest.val == 50.0
+end
 
 # @testset "Deep Nesting" begin
 #     # Create a 10-level deep nested structure
