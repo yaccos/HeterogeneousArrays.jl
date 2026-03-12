@@ -283,27 +283,27 @@ end
 @testset "Reference vs Copy Behavior" begin
     original_array = [1.0, 2.0, 3.0]
     original_scalar = 42.0
-    
+
     v = HeterogeneousVector(vec = original_array, scalar = original_scalar)
-    
+
     @testset "Array Referencing" begin
         # Modifying original should affect v
         original_array[1] = 99.0
         @test v.vec[1] == 99.0
-        
+
         # Modifying v should affect original
         v.vec[2] = -7.0
         @test original_array[2] == -7.0
-        
+
         # Verify they share the same memory location
         @test pointer(v.vec) == pointer(original_array)
     end
-    
+
     @testset "Scalar Wrapping" begin
         # Scalars are wrapped in Ref, so the original value (being immutable) 
         # cannot be linked, but we should verify the Ref contains the value.
         @test v.scalar == 42.0
-        
+
         v.scalar = 100.0
         @test original_scalar == 42.0 # Original local variable remains unchanged
     end
@@ -321,10 +321,10 @@ end
     @testset "Nested Broadcasting" begin
         # Test addition across nested layers
         res = outer .+ 1.0
-        
+
         @test res isa HeterogeneousVector
         @test res.sub isa HeterogeneousVector
-        
+
         # Verify recursion reached the bottom
         @test res.sub.x == [2.0, 3.0]
         @test res.sub.y == 4.0

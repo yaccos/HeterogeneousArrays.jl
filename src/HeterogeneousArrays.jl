@@ -662,7 +662,6 @@ end
         bc::Broadcast.Broadcasted{
             Broadcast.Style{AbstractHeterogeneousVector{Names}}, Axes, F, Args}
 ) where {T, S, Names, Axes, F, Args <: Tuple}
-    
     if fieldnames(S) != Names
         throw(ArgumentError("Field name mismatch: $(fieldnames(S)) vs $(Names)"))
     end
@@ -671,7 +670,7 @@ end
     @inline function map_field(::Val{name}) where {name}
         target_field = getfield(NamedTuple(dest), name)
         bc_unpacked = unpack_broadcast(bc, Val(name))
-        
+
         if target_field isa Ref
             # Use @inline here too
             target_field[] = Broadcast.materialize(bc_unpacked)
