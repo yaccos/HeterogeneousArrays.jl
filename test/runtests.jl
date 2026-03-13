@@ -354,13 +354,58 @@ end
     @test dest.val == 50.0
 end
 
-# @testset "Deep Nesting" begin
-#     # Create a 10-level deep nested structure
-#     v = HeterogeneousVector(x = 1.0)
-#     for i in 1:10
-#         v = HeterogeneousVector(inner = v, val = Float64(i))
-#     end
-#     
-#     # If this is inferred as a concrete type, recursion is working!
-#     @test !(@inferred(v .+ 1.0) isa Any)
-# end
+@testset "Deep Nesting" begin
+    # Create a 10-level deep nested structure
+    depth = 10
+    v = HeterogeneousVector(x = 1.0)
+    for i in 1:depth
+        # We store the loop index in 'val' to verify it later
+        v = HeterogeneousVector(inner = v, val = Float64(i))
+    end
+
+    # Perform the broadcast operation
+    # This is the "stress test" for unpack_broadcast
+    res = v .+ 1.0
+
+    @test res isa HeterogeneousVector
+    @test length(res) == length(v)
+
+    # Recursive helper to verify the results at every level
+    function verify_nesting(current_v, current_depth)
+        if current_depth == 0
+            # We've reached the bottom-most level: @NamedTuple{x::RefValue{Float64}}
+            @test current_v.x == 1.0 + 1.0
+            return
+        end
+
+        # Check the 'val' field at this level (should be i + 1.0)
+        @test current_v.val == Float64(current_depth) + 1.0
+
+        # Recurse into the 'inner' field
+        verify_nesting(current_v.inner, current_depth - 1)
+    end
+
+    # Run the verification
+    verify_nesting(res, depth)
+
+    @info "Deep nesting verification successful for $depth levels."
+end
+
+@testset "Keyword-based similar errors" begin
+    x = HeterogeneousVector(pos = [1.0, 2.0]u"m", id = [10, 20])
+
+    # Test that a non-existent field throws an ArgumentError
+    @test_throws ArgumentError similar(x, non_existent_field = Float64)
+
+    # Test that it lists available fields in the error (optional check)
+    try
+        similar(x, typo = Int)
+    catch e
+        @test contains(e.msg, "Field 'typo' does not exist")
+        @test contains(e.msg, "pos")
+        @test contains(e.msg, "id")
+    end
+
+    # Ensure multiple valid fields still work
+    @test_nowarn similar(x, pos = Float32, id = Int32)
+end

@@ -404,9 +404,6 @@ function Base.similar(
     HeterogeneousVector(similar_x)
 end
 
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# Check with Jakob Peder Pettersen whether this is still in line with his plans for the API, as this is a bit of an edge case and we might want to throw an error instead
-
 """
     Base.similar(hv::HeterogeneousVector, ::Type{T}, ::Type{S}, R::DataType...)
 
@@ -499,6 +496,10 @@ segment. Fields not mentioned in `kwargs` will preserve their original element t
 # Returns
 - A `HeterogeneousVector` with uninitialized (or zeroed) data in the requested types.
 
+# Errors
+- Throws an `ArgumentError` if any key in `kwargs` does not match an existing field 
+  name in `hv`. This prevents silent failures caused by typos in field names.
+
 # Performance Note
 This implementation avoids `Dict` allocations by operating directly on the `kwargs` 
 NamedTuple, making it more efficient and "compiler-friendly" than dictionary-based lookups.
@@ -515,20 +516,29 @@ julia> # Change 'id' to Float64 and 'pos' to a different unit/type
 julia> eltype(v2.id)
 Float64
 
-julia> eltype(v2.pos)
-Float32
+julia> # Typos in field names will now trigger an error
+       similar(v, poss = Float64)
+ERROR: ArgumentError: Field 'poss' does not exist in HeterogeneousVector. Available fields: (:pos, :id)
+
 """
 function Base.similar(hv::HeterogeneousVector{T, S}; kwargs...) where {T, S}
     names = propertynames(hv)
+    kw_names = keys(kwargs)
 
-    # We create the new fields by looking into the 'kwargs' NamedTuple
+    # Validate that all provided keywords exist as fields
+    for k in kw_names
+        if k !== :_ && !(k in names)
+            throw(ArgumentError("Field '$k' does not exist in $(nameof(typeof(hv))). Available fields: $names"))
+        end
+    end
+
+    # Construct the new fields
     new_fields_tuple = ntuple(length(names)) do i
         name = names[i]
         field = getfield(NamedTuple(hv), name)
 
-        # get(collection, key, default)
         # If 'name' exists in kwargs, we get the value (the Type).
-        # If not, we get nothing.
+        # Otherwise, we use the existing field's type
         target_type = get(kwargs, name, nothing)
 
         if target_type !== nothing
@@ -540,7 +550,6 @@ function Base.similar(hv::HeterogeneousVector{T, S}; kwargs...) where {T, S}
 
     return HeterogeneousVector(NamedTuple{names}(new_fields_tuple))
 end
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 mutable struct BcInfo{BcStyle <: Broadcast.BroadcastStyle}
     f::Function
