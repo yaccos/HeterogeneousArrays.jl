@@ -2,3 +2,98 @@
 This repository introduces a type called HeterogeneousVector, a segmented array designed to hold elements of different concrete types while maintaining efficient, type-stable broadcasting.
 
 The goal of this project is to generalize the prototype from [COMBAT.jl](https://github.com/yaccos/COMBAT.jl) into a more versatile and reusable package.
+
+## Key Features
+
+- **Type-stable heterogeneous state**: Hold fields of different types in a single efficient container
+- **Unitful integration**: Enforce physical correctness at compile-time
+- **Zero-overhead broadcasting**: Fused broadcast operations maintain type stability
+- **ODE-friendly**: Drop-in compatible with SciML solvers (DifferentialEquations.jl)
+- **Physical safety**: Catch dimensional inconsistencies before they propagate
+
+## Installation
+
+Open the Julia package manager (`]`) and run:
+```
+pkg> add HeterogeneousArrays
+```
+
+Then use it in your code:
+```julia
+using HeterogeneousArrays, Unitful, DifferentialEquations
+```
+
+## Example: Pendulum Physics
+
+HeterogeneousVector is ideal for physical systems where state variables have different units. It ensures that your numerical solver respects the underlying physics of your model.
+### 1. Modeling a Pendulum
+
+We define a pendulum state with an angle θ (radians) and angular velocity ω (rad/s).
+
+```julia
+
+using HeterogeneousArrays, Unitful, DifferentialEquations
+
+# Define state: angle (dimensionless) and angular velocity (1/s)
+
+u0 = HeterogeneousVector(θ = 0.1u"rad", ω = 0.0u"rad/s")
+
+# Simple Pendulum ODE: θ'' = -(g/L)sin(θ)
+function pendulum_eom(du, u, p, t)
+    g, L = p
+    du.θ = u.ω
+    du.ω = -(g/L) * sin(u.θ)
+end
+
+params = (9.81u"m/s^2", 1.0u"m")
+tspan = (0.0u"s", 10.0u"s")
+prob = ODEProblem(pendulum_eom, u0, tspan, params)
+```
+
+### 2. Absolute vs. Relative Errors
+
+In SciML solvers (like `DifferentialEquations.jl`), you must provide tolerances. For heterogeneous data, your Absolute Error (`abstol`) must have the same units as your state fields.
+
+```julia
+# Absolute tolerance must match the dimensions of θ and ω
+abstol = HeterogeneousVector(θ = 1e-6u"rad", ω = 1e-6u"rad/s")
+
+# Relative error is a dimensionless scaling factor
+reltol = 1e-4
+
+# If the units of abstol do not match u0, Julia will throw a DimensionError
+sol = solve(prob, Tsit5(), abstol=abstol, reltol=reltol)
+```
+
+## Physical Safety with DimensionError
+
+One of the primary benefits of using HeterogeneousArrays with Unitful is catching physical bugs early. The library enforces strict dimensional consistency during broadcasting and assignment.
+
+    Broadcasting Safety: If you try to add a scalar to a field with units (e.g., u0.ω .+ 1.0), the system throws a DimensionError.
+
+    Assignment Safety: If the ODE solver (or a user) tries to assign a "Meter" value to the "Radian" field, the operation will fail immediately rather than producing a physically impossible result.
+
+## Performance
+
+HeterogeneousVector is built on a specialized in-place mapping interface. This allows it to communicate with SciML solvers with zero memory overhead, achieving performance parity with plain `Vector{Float64}` while maintaining full type and unit safety.
+
+For detailed benchmarks against ComponentArrays and ArrayPartition, see the Performance Guide.
+Documentation
+
+## Check out the Full Documentation for:
+
+* API Reference
+* Advanced Broadcasting Logic
+* Performance Benchmarks
+
+## Citation
+
+If you use `HeterogeneousArrays.jl` in research, please cite:
+
+```bibtex
+@software{HeterogeneousArrays2024,
+  author = {Jacob Pettersen},
+  title = {HeterogeneousArrays.jl: Type-Stable Broadcasting for Heterogeneous State},
+  year = {2024},
+  url = {https://github.com/.../HeterogeneousArrays.jl}
+}
