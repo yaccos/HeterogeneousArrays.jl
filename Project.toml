@@ -7,9 +7,11 @@ authors = ["Gregor Decristoforo <gregor.decristoforo@gmail.com>"]
 projects = ["docs"]
 
 [deps]
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 RecursiveArrayTools = "731186ca-8d62-57ce-b412-fbd966d074cd"
 Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
 [compat]
+BenchmarkTools = "1.6.3"
 RecursiveArrayTools = "3.48.0"
 Unitful = "1.28.0"
