@@ -53,7 +53,7 @@ sol = DE.solve(prob, DE.Vern8())
 
 ### 2. Absolute vs. Relative Errors
 
-In SciML solvers (like `DifferentialEquations.jl`), you must provide tolerances. For heterogeneous data, your Absolute Error (`abstol`) must have the same units as your state fields.
+In SciML solvers (like `DifferentialEquations.jl`), you can provide tolerances. For heterogeneous data, your Absolute Error (`abstol`) must have the same units as your state fields.
 
 ```julia
 # Absolute tolerance must match the dimensions of θ and ω
