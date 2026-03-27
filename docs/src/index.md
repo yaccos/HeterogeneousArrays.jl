@@ -73,20 +73,3 @@ In SciML solvers (like `DifferentialEquations.jl`), you can provide tolerances. 
 abstol_struct = 1e-8 .* oneunit.(u0)
 sol = DE.solve(prob, DE.Vern8(), abstol = abstol_struct)
 ```
-
-<!---
-## Citation
-If you use HeterogeneousArrays.jl in research, please cite:
-@article{SpeedyWeatherJOSS,
-  author = {Jacob Pettersen},
-  doi = {},
-  url = {https://doi.org/...},
-  title = {HeterogeneousArrays.jl ... },
-  year = {2026},
-  publisher = {},
-  volume = {},
-  number = {},
-  pages = {},
-  journal = {Journal of Open Source Software}
-}
--->
