@@ -56,14 +56,10 @@ sol = DE.solve(prob, DE.Vern8())
 In SciML solvers (like `DifferentialEquations.jl`), you can provide tolerances. For heterogeneous data, your Absolute Error (`abstol`) must have the same units as your state fields.
 
 ```julia
-# Absolute tolerance must match the dimensions of θ and ω
-abstol = HeterogeneousVector(θ = 1e-6u"rad", ω = 1e-6u"rad/s")
+# Absolute tolerance must match the dimensions of u0
+abstol_struct = 1e-8 .* oneunit.(u0)
+sol = DE.solve(prob, DE.Vern8(), abstol = abstol_struct)
 
-# Relative error is a dimensionless scaling factor
-reltol = 1e-4
-
-# If the units of abstol do not match u0, Julia will throw a DimensionError
-sol = solve(prob, Tsit5(), abstol=abstol, reltol=reltol)
 ```
 
 ## Physical Safety with DimensionError
