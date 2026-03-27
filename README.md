@@ -13,7 +13,7 @@ The goal of this project is to generalize the prototype from [COMBAT.jl](https:/
 
 ## Installation
 
-The package can be installed with the Julia package manager. From the Julia REPL type (`]`) and run:
+The package can be installed with the Julia package manager. From the Julia REPL type `]` and run:
 ```
 pkg> add HeterogeneousArrays
 ```
@@ -66,9 +66,9 @@ sol = DE.solve(prob, DE.Vern8(), abstol = abstol_struct)
 
 One of the primary benefits of using HeterogeneousArrays with Unitful is catching physical bugs early. The library enforces strict dimensional consistency during broadcasting and assignment.
 
-    Broadcasting Safety: If you try to add a scalar to a field with units (e.g., u0.ω .+ 1.0), the system throws a DimensionError.
+Broadcasting Safety: If you try to add a scalar to a field with units (e.g., `u0.ω .+ 1.0`), the system throws a DimensionError.
 
-    Assignment Safety: If the ODE solver (or a user) tries to assign a "Meter" value to the "Radian" field, the operation will fail immediately rather than producing a physically impossible result.
+Assignment Safety: If the ODE solver (or a user) tries to assign a "Meter" value to the "Radian" field, the operation will fail immediately rather than producing a physically impossible result.
 
 ## Performance
 
@@ -84,14 +84,19 @@ Check out the [Full Documentation](https://yaccos.github.io/HeterogeneousArrays.
 * Advanced Broadcasting Logic
 * Performance Benchmarks
 
+<!---
 ## Citation
-
-If you use `HeterogeneousArrays.jl` in research, please cite:
-
-```bibtex
-@software{HeterogeneousArrays2026,
+If you use HeterogeneousArrays.jl in research, please cite:
+@article{SpeedyWeatherJOSS,
   author = {Jacob Pettersen},
-  title = {HeterogeneousArrays.jl: Type-Stable Broadcasting for Heterogeneous State},
+  doi = {},
+  url = {https://doi.org/...},
+  title = {HeterogeneousArrays.jl ... },
   year = {2026},
-  url = {https://github.com/yaccos/HeterogeneousArrays.jl}
+  publisher = {},
+  volume = {},
+  number = {},
+  pages = {},
+  journal = {Journal of Open Source Software}
 }
+-->
