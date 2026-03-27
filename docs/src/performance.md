@@ -19,21 +19,28 @@ the compiler must generate conservative (slow) code for multiple possibilities.
 The compiler knows exactly what type is stored in each named field.
 
 ```julia
-v = HeterogeneousVector(x = [1.0, 2.0], y = 5.0)
-result = v.x[1] + v.y  # Fast: compiler knows x is Vector{Float64}, y is Float64
+v = HeterogeneousVector(x = [1.0u"m", 2.0u"m"], y = 5.0u"s")
+
+# Same physical quantity, different units (m + cm): type-stable and unit-safe
+sum_len = v.x[1] + 50.0u"cm"
+
+# Different components with different units: output unit is inferred at compile time (m*s)
+cross_term = v.x[1] * v.y
 ```
 
 ### Type-Stable: Broadcasting
 
 ```julia
-v = HeterogeneousVector(a = [1.0, 2.0], b = 3.0)
-w = HeterogeneousVector(a = [10.0, 20.0], b = 5.0)
-result = v .+ w  # Fast: Computed as (v.a .+ w.a) and (v.b .+ w.b)
+v = HeterogeneousVector(a = [1.0u"m", 2.0u"m"], b = 3.0u"s")
+w = HeterogeneousVector(a = [10.0u"m", 20.0u"m"], b = 5.0u"s")
+result = v .+ w  # Fast: computed field-wise as result.a = v.a .+ w.a and result.b = v.b .+ w.b
+result2 = v .* w  # Fast: computed field-wise as result2.a = v.a .* w.a and result2.b = v.b .* w.b
 ```
 
 ### Not Type-Stable: Flattened Indexing
 
-Using `v[i]` forces the compiler to check which field contains index i at runtime. This results in "type-shielding" or "boxing," which prevents optimization.
+Using `v[i]` forces a runtime check to determine which field contains index `i`.
+Because the accessed field is only known at runtime, this can introduce boxing and limit optimization.
 
 Benchmark Comparison:
 
@@ -92,16 +99,18 @@ Threads: 1 default, 1 interactive, 1 GC (on 20 virtual cores)
 ```
 
 
-| Implementation Strategy   |            Min (ms)   | StdErr (ms)   |   Allocs   |      Memory |
-|:------------------------|:--------------|:------------|:-------|:-------|
-|1. HeterogeneousVector (No Units)    |   0.0297    |     0.0015      |   803    |   40.9 KiB |
-|2. HeterogeneousVector (Units)        |  0.0295     |    0.0028    |     878   |    43.2 KiB |
-|3. ArrayPartition (No Units)           | 0.0347     |    0.0007    |     851   |    57.3 KiB |
-|4. ArrayPartition (Units)             |  1.0095     |    0.0328   |    11321   |   676.1 KiB |
-|5. ComponentVector (No Units)         |  0.0393    |     0.0003   |     1396   |    68.8 KiB |
-|6. ComponentVector (Units)            |  0.8537    |     0.0186   |    17745  |    359.9 KiB |
+| Implementation Strategy            |   Min (ms)   | StdErr (ms)   |   Allocs   |      Memory   |
+|:-----------------------------------|:-------------|:--------------|:-----------|:--------------|
+|1. HeterogeneousVector (No Units)   |   0.0297     |    0.0015     |     803    |    40.9 KiB   |
+|2. HeterogeneousVector (Units)      |   0.0295     |    0.0028     |     878    |    43.2 KiB   |
+|3. ArrayPartition (No Units)        |   0.0347     |    0.0007     |     851    |    57.3 KiB   |
+|4. ArrayPartition (Units)           |   1.0095     |    0.0328     |     11321  |    676.1 KiB  |
+|5. ComponentVector (No Units)       |   0.0393     |    0.0003     |     1396   |    68.8 KiB   |
+|6. ComponentVector (Units)          |   0.8537     |    0.0186     |     17745  |    359.9 KiB  |
 
 ### Analysis
-- **HeterogeneousVector** achieves performance parity with `ArrayPartition` while providing descriptive field names (`.r`, `.v`).
+- **HeterogeneousVector** consistently outperforms `ArrayPartition` in the 'Units'-enabled benchmark.
+- **HeterogeneousVector** achieves performance parity with `ArrayPartition` for the 'No Units' case while providing descriptive field names (`.r`, `.v`).
 - **Zero-Cost Units:** Thanks to specialized broadcasting kernels, using `Unitful` units results in near-zero performance overhead compared to raw numbers.
 - **Memory Efficiency:** The in-place mapping (via a specialized solver interface) ensures that we don't allocate unnecessary temporary arrays during the integration process.
+- **NB!** HeterogeneousVector provides substantial runtime performance benefits, however compilation times are longer.
