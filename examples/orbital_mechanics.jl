@@ -21,14 +21,14 @@ r0_u, v0_u = r0_raw * u"km", v0_raw * u"km/s"
 
 # 2. Define ODE Kernels
 # Kernel for positional/indexed access (ArrayPartition)
-f_part(dy, y, μ, t) = begin
+function f_part!(dy, y, μ, t)
     r_mag = norm(y.x[1])
     dy.x[1] .= y.x[2]
     dy.x[2] .= -μ .* y.x[1] ./ r_mag^3
 end
 
 # Kernel for named access (HeterogeneousVector & ComponentVector)
-f_named(dy, y, μ, t) = begin
+function f_named!(dy, y, μ, t)
     r_mag = norm(y.r)
     dy.r .= y.v
     dy.v .= -μ .* y.r ./ r_mag^3
@@ -39,17 +39,17 @@ common_args = (alg = DE.Vern8(), dt = 1e-3)
 
 probs = [
     ("HeterogeneousVector (No Units)",
-        DE.ODEProblem(f_named, HeterogeneousVector(r = r0_raw, v = v0_raw), (0.0, Δt_raw), μ_raw)),
+        DE.ODEProblem(f_named!, HeterogeneousVector(r = r0_raw, v = v0_raw), (0.0, Δt_raw), μ_raw)),
     ("HeterogeneousVector (Units)",
-        DE.ODEProblem(f_named, HeterogeneousVector(r = r0_u, v = v0_u), (0.0u"s", Δt_u), μ_u)),
+        DE.ODEProblem(f_named!, HeterogeneousVector(r = r0_u, v = v0_u), (0.0u"s", Δt_u), μ_u)),
     ("ArrayPartition (No Units)",
-        DE.ODEProblem(f_part, ArrayPartition(r0_raw, v0_raw), (0.0, Δt_raw), μ_raw)),
+        DE.ODEProblem(f_part!, ArrayPartition(r0_raw, v0_raw), (0.0, Δt_raw), μ_raw)),
     ("ArrayPartition (Units)",
-        DE.ODEProblem(f_part, ArrayPartition(r0_u, v0_u), (0.0u"s", Δt_u), μ_u)),
+        DE.ODEProblem(f_part!, ArrayPartition(r0_u, v0_u), (0.0u"s", Δt_u), μ_u)),
     ("ComponentVector (No Units)",
-        DE.ODEProblem(f_named, ComponentVector(r = r0_raw, v = v0_raw), (0.0, Δt_raw), μ_raw)),
+        DE.ODEProblem(f_named!, ComponentVector(r = r0_raw, v = v0_raw), (0.0, Δt_raw), μ_raw)),
     ("ComponentVector (Units)",
-        DE.ODEProblem(f_named, ComponentVector(r = r0_u, v = v0_u), (0.0u"s", Δt_u), μ_u))
+        DE.ODEProblem(f_named!, ComponentVector(r = r0_u, v = v0_u), (0.0u"s", Δt_u), μ_u))
 ]
 
 # 4. Performance Comparison
