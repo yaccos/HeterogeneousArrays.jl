@@ -91,16 +91,15 @@ Platform Info:
 Threads: 1 default, 1 interactive, 1 GC (on 20 virtual cores)
 ```
 
-────────────────────────────────────────────────────────────────────────────────────────
-Implementation Strategy               Min (ms)    StdErr (ms)      Allocs         Memory
-────────────────────────────────────────────────────────────────────────────────────────
-1. HeterogeneousVector (No Units)       0.0297         0.0015         803       40.9 KiB
-2. HeterogeneousVector (Units)          0.0295         0.0028         878       43.2 KiB
-3. ArrayPartition (No Units)            0.0347         0.0007         851       57.3 KiB
-4. ArrayPartition (Units)               1.0095         0.0328       11321      676.1 KiB
-5. ComponentVector (No Units)           0.0393         0.0003        1396       68.8 KiB
-6. ComponentVector (Units)              0.8537         0.0186       17745      359.9 KiB
-────────────────────────────────────────────────────────────────────────────────────────
+
+| Implementation Strategy   |            Min (ms)   | StdErr (ms)   |   Allocs   |      Memory |
+|:------------------------|:--------------|:------------|:-------|:-------|
+|1. HeterogeneousVector (No Units)    |   0.0297    |     0.0015      |   803    |   40.9 KiB |
+|2. HeterogeneousVector (Units)        |  0.0295     |    0.0028    |     878   |    43.2 KiB |
+|3. ArrayPartition (No Units)           | 0.0347     |    0.0007    |     851   |    57.3 KiB |
+|4. ArrayPartition (Units)             |  1.0095     |    0.0328   |    11321   |   676.1 KiB |
+|5. ComponentVector (No Units)         |  0.0393    |     0.0003   |     1396   |    68.8 KiB |
+|6. ComponentVector (Units)            |  0.8537    |     0.0186   |    17745  |    359.9 KiB |
 
 ### Analysis
 - **HeterogeneousVector** achieves performance parity with `ArrayPartition` while providing descriptive field names (`.r`, `.v`).
