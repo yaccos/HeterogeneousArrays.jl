@@ -113,5 +113,5 @@ Threads: 1 default, 1 interactive, 1 GC (on 20 virtual cores)
 - **`HeterogeneousVector`** consistently outperforms `ArrayPartition` in the 'Units'-enabled benchmark.
 - **`HeterogeneousVector`** achieves performance parity with `ArrayPartition` for the 'No Units' case while providing descriptive field names (`.r`, `.v`).
 - **Zero-Cost Units:** Thanks to specialized broadcasting kernels, using `Unitful` units results in near-zero performance overhead compared to raw numbers.
-- **Memory Efficiency:** The in-place mapping (via a specialized solver interface) ensures that we don't allocate unnecessary temporary arrays during the integration process.
-- **NB!** HeterogeneousVector provides substantial runtime performance benefits, however compilation times are longer.
+- **Memory Efficiency:** The in-place mapping (via a specialized solver interface) ensures that we don't allocate unnecessary temporary arrays during the integration process. 
+- **NB!** `HeterogeneousVector` provides substantial runtime performance benefits, however compilation times are longer. Hence, `ComponentVector` may in practice be faster for one-off simulations which only take a few seconds to run.
