@@ -87,7 +87,7 @@ Check out the [Full Documentation](https://yaccos.github.io/HeterogeneousArrays.
 <!---
 ## Citation
 If you use HeterogeneousArrays.jl in research, please cite:
-@article{SpeedyWeatherJOSS,
+@article{,
   author = {Jacob Pettersen},
   doi = {},
   url = {https://doi.org/...},

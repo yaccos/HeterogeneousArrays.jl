@@ -76,7 +76,9 @@ sol = solve(prob, Vern8(), abstol = abstol_struct)
 
 ## Compatibility with DifferentialEquations.jl
 
-While `HeterogeneousArrays.jl` is designed for SciML integration, it is not compatible with all solvers. It works seamlessly with explicit methods (e.g., `Tsit5()`, `Vern8()`) that rely on broadcasting. However, implicit solvers (e.g., `Rosenbrock23()`) are currently unsupported because they require a homogeneous Jacobian matrix for linear algebra operations. We are actively working on extending compatibility to stiff solvers in future releases.
+While `HeterogeneousArrays.jl` is designed for SciML integration, it is not compatible with all solvers. It works seamlessly with explicit methods (e.g., `Tsit5()`, `Vern8()`) that rely on broadcasting. 
+However, implicit solvers (e.g., `Rosenbrock23()`) are currently unsupported because they require a homogeneous Jacobian matrix for linear algebra operations. 
+We are actively working on extending compatibility to stiff solvers in future releases.
 
 <!---
 ## Citation
