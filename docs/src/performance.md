@@ -40,7 +40,7 @@ result2 = v .* w  # Fast: computed field-wise as result2.a = v.a .* w.a and resu
 ### Not Type-Stable: Flattened Indexing
 
 Using `v[i]` forces a runtime check to determine which field contains index `i`.
-Because the accessed field is only known at runtime, this can introduce boxing and limit optimization.
+Because the accessed field is only known at runtime, this can introduce type-instabilities and limit optimization.
 
 Benchmark Comparison:
 
@@ -109,8 +109,8 @@ Threads: 1 default, 1 interactive, 1 GC (on 20 virtual cores)
 |6. ComponentVector (Units)          |   0.8537     |    0.0186     |     17745  |    359.9 KiB  |
 
 ### Analysis
-- **HeterogeneousVector** consistently outperforms `ArrayPartition` in the 'Units'-enabled benchmark.
-- **HeterogeneousVector** achieves performance parity with `ArrayPartition` for the 'No Units' case while providing descriptive field names (`.r`, `.v`).
+- **`HeterogeneousVector`** consistently outperforms `ArrayPartition` in the 'Units'-enabled benchmark.
+- **`HeterogeneousVector`** achieves performance parity with `ArrayPartition` for the 'No Units' case while providing descriptive field names (`.r`, `.v`).
 - **Zero-Cost Units:** Thanks to specialized broadcasting kernels, using `Unitful` units results in near-zero performance overhead compared to raw numbers.
 - **Memory Efficiency:** The in-place mapping (via a specialized solver interface) ensures that we don't allocate unnecessary temporary arrays during the integration process.
 - **NB!** HeterogeneousVector provides substantial runtime performance benefits, however compilation times are longer.
