@@ -20,7 +20,7 @@ pkg> add HeterogeneousArrays
 
 Then use it in your code:
 ```julia
-using HeterogeneousArrays, Unitful, DifferentialEquations
+using HeterogeneousArrays
 ```
 
 ## Example: Pendulum Physics

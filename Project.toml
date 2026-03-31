@@ -1,17 +1,15 @@
 name = "HeterogeneousArrays"
 uuid = "40d36c5c-e028-4551-8108-c37812a952b9"
 version = "0.1.0"
-authors = ["Gregor Decristoforo <gregor.decristoforo@gmail.com>"]
+authors = ["Jakob Peder Pettersen <jakobpeder.pettersen@gmail.com>", "Gregor Decristoforo <gregor.decristoforo@gmail.com>", "Julia Mikhailova <julia.mikhailova@uit.no>"]
 
 [workspace]
 projects = ["docs"]
 
 [deps]
-BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 RecursiveArrayTools = "731186ca-8d62-57ce-b412-fbd966d074cd"
 Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
 [compat]
-BenchmarkTools = "1.6.3"
-RecursiveArrayTools = "3.48.0"
+RecursiveArrayTools = "3.49.0"
 Unitful = "1.28.0"
