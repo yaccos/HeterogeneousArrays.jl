@@ -28,7 +28,7 @@ end
 r0_raw = [1131.34, -2282.34, 6672.42]
 v0_raw = [-5.64, 4.30, 2.42]
 μ_raw = 398600.44
-Δt_raw = 3600.0
+Δt_raw = 3600.0*100
 n_objects = 3
 
 r0_unitful = r0_raw * Unitful.u"km"
@@ -201,7 +201,7 @@ for case in cases
         # Warm-up to avoid precompilation from influencing results
         DE.solve(case.prob; alg = DE.Tsit5(), adaptive = true, dt = case.dt)
 
-        trial = @benchmark DE.solve($(case.prob); alg = DE.Tsit5(), adaptive = true, dt = $(case.dt)) samples=100
+        trial = @benchmark DE.solve($(case.prob); alg = DE.Tsit5(), adaptive = true, dt = $(case.dt)) samples=10
 
         t_min = minimum(trial).time / 1e6
         stderror_ms = (std(trial.times) / sqrt(length(trial.times))) / 1e6
