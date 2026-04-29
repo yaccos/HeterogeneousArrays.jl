@@ -1,18 +1,15 @@
 using LinearAlgebra, BenchmarkTools
 import Unitful
-import FlexUnits
-import FlexUnits.UnitRegistry as UnitRegistry
 import ComponentArrays: ComponentVector
 import RecursiveArrayTools
 import RecursiveArrayTools: ArrayPartition
 import DifferentialEquations as DE
-using StaticArrays: FieldVector, SVector
 using HeterogeneousArrays
 
 # --- Description ---
 println("\nOrbital Mechanics ODE Benchmark")
 println("This benchmark compares integration performance, statistical error, and memory efficiency")
-println("across HeterogeneousVector, ArrayPartition, ComponentVector, and FieldVector.")
+println("across HeterogeneousVector, ArrayPartition, and ComponentVector.")
 
 # Formatting helper for 4 decimal places without Printf
 function format_val(val; digits = 4)
@@ -36,30 +33,14 @@ v0_unitful = v0_raw * Unitful.u"km/s"
 μ_unitful = μ_raw * Unitful.u"km^3/s^2"
 Δt_unitful = Δt_raw * Unitful.u"s"
 
-r0_flex = r0_raw * UnitRegistry.u"km"
-v0_flex = v0_raw * UnitRegistry.u"km/s"
-μ_flex = μ_raw * UnitRegistry.u"km^3/s^2"
-Δt_flex = Δt_raw * UnitRegistry.u"s"
-
 tspan_raw = (0.0, Δt_raw)
-tspan_unitful_s = (0.0 * Unitful.u"s", Δt_unitful)
-tspan_flex_s = (0.0 * UnitRegistry.u"s", Δt_flex)
-
-
-@kwdef struct OrbitFieldVector{T} <: FieldVector{2, SVector{n_objects, T}}
-    r::SVector{n_objects, T}
-    v::SVector{n_objects, T}
-end
-
-RecursiveArrayTools.recursivecopy(u::OrbitFieldVector) = copy(u)
+tspan_unitful = (0.0 * Unitful.u"s", Δt_unitful)
 
 function named_initial_conditions(unit_handling::Symbol)
     if unit_handling === :none
         return (r0_raw, v0_raw, μ_raw, Δt_raw)
     elseif unit_handling === :unitful 
         return (r0_unitful, v0_unitful, μ_unitful, Δt_unitful)
-    elseif unit_handling === :flexunits
-        return (r0_flex, v0_flex, μ_flex, Δt_flex)
     else
         error("Unknown unit handling: $unit_handling")
     end
@@ -108,16 +89,10 @@ function f_heterogeneous_inplace!(dy, y, μ, t)
     return dy
 end
 
-function f_field_alloc(y, μ, t)
-    r_mag = norm(y.r)
-    dr = y.v
-    dv = -μ .* y.r ./ r_mag^3
-    return OrbitFieldVector(r=dr, v=dv)
-end
 
 function build_case(array_structure::Symbol, unit_handling::Symbol, ode_interface::Symbol)
     r, v, μ, dt = named_initial_conditions(unit_handling)
-    tspan = unit_handling === :none ? tspan_raw : (unit_handling === :unitful ? tspan_unitful_s : tspan_flex_s)
+    tspan = unit_handling === :none ? tspan_raw : tspan_unitful
 
     if array_structure === :componentvector
         u0 = ComponentVector(r = r, v = v)
@@ -128,16 +103,9 @@ function build_case(array_structure::Symbol, unit_handling::Symbol, ode_interfac
     elseif array_structure === :heterogeneousvector
         u0 = HeterogeneousVector(r = r, v = v)
         f = ode_interface === :allocating ? f_heterogeneous_alloc : f_heterogeneous_inplace!
-    elseif array_structure === :fieldvector
-        u0 = OrbitFieldVector(r=SVector{n_objects}(r), v = SVector{n_objects}(v))
-        if ode_interface !== :allocating
-            error("FieldVector only supports the allocating interface")
-        end
-        f = f_field_alloc
     else
         error("Unknown array structure: $array_structure")
     end
-
     return DE.ODEProblem(f, u0, tspan, μ), dt
 end
 
@@ -145,13 +113,11 @@ array_structures = [
     (:componentvector, "ComponentVector"),
     (:arraypartition, "ArrayPartition"),
     (:heterogeneousvector, "HeterogeneousVector"),
-    (:fieldvector, "FieldVector"),
 ]
 
 unit_handlings = [
     (:none, "None"),
     (:unitful, "Unitful"),
-    (:flexunits, "FlexUnits"),
 ]
 
 ode_interfaces = [
@@ -165,12 +131,7 @@ for (array_symbol, array_label) in array_structures
     for (unit_symbol, unit_label) in unit_handlings
         for (interface_symbol, interface_label) in ode_interfaces
             if array_symbol === :componentvector && unit_symbol === :unitful && interface_symbol === :allocating
-                continue
-            end
-            if unit_symbol === :flexunits && array_symbol !== :fieldvector
-                continue
-            end
-            if array_symbol === :fieldvector && interface_symbol === :inplace
+                # Incompatible combination which always yields an error because of lack of interface compatibility
                 continue
             end
             try
