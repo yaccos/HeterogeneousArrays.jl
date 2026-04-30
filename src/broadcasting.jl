@@ -34,41 +34,59 @@ julia> result.a
  22
 ```
 """
+abstract type AbstractHeterogeneousVectorStyle{Names} <: Broadcast.AbstractArrayStyle{1} end
+
+struct PureHeterogeneousVectorStyle{Names} <: AbstractHeterogeneousVectorStyle{Names} end
+
+struct MixedHeterogeneousVectorStyle{Names} <: AbstractHeterogeneousVectorStyle{Names} end
+
 function Base.BroadcastStyle(::Type{<:AbstractHeterogeneousVector{T, S}}) where {T, S}
-    Broadcast.Style{AbstractHeterogeneousVector{fieldnames(S)}}()
+    PureHeterogeneousVectorStyle{fieldnames(S)}()
 end
-function Base.BroadcastStyle(::Broadcast.Style{AbstractHeterogeneousVector{Names1}},
-        ::Broadcast.Style{AbstractHeterogeneousVector{Names2}}) where {Names1, Names2}
+
+# Broadcasting over HeterogeneousVectors with different fields yields an error
+function Base.BroadcastStyle(::PureHeterogeneousVectorStyle{Names1},
+        ::PureHeterogeneousVectorStyle{Names2}) where {Names1, Names2}
     error("Cannot broadcast heterogeneous vectors with different field names: $(Names1) vs $(Names2)")
 end
-function Base.BroadcastStyle(::Broadcast.Style{AbstractHeterogeneousVector{Names}},
-        ::Broadcast.Style{AbstractHeterogeneousVector{Names}}) where {Names}
-    Broadcast.Style{AbstractHeterogeneousVector{Names}}()
+
+# This specialization ensures that  
+function Base.BroadcastStyle(::PureHeterogeneousVectorStyle{Names},
+        ::PureHeterogeneousVectorStyle{Names}) where {Names}
+    PureHeterogeneousVectorStyle{Names}()
 end
-function Base.BroadcastStyle(::Broadcast.Style{AbstractHeterogeneousVector{Names}},
-        ::Base.Broadcast.BroadcastStyle) where {Names}
-    Broadcast.Style{AbstractHeterogeneousVector{Names}}()
+
+function Base.BroadcastStyle(style::AbstractHeterogeneousVectorStyle,
+        ::Base.Broadcast.BroadcastStyle)
+    style
+end
+
+function Base.BroadcastStyle(::PureHeterogeneousVectorStyle{Names}, ::Base.Broadcast.AbstractArrayStyle{1}) where {Names}
+    MixedHeterogeneousVectorStyle{Names}()
 end
 
 # Helper function to find HeterogeneousVector in broadcast arguments
 function find_heterogeneous_vector(bc::Base.Broadcast.Broadcasted)
     find_heterogeneous_vector(bc.args)
 end
+
 function find_heterogeneous_vector(args::Tuple)
     find_heterogeneous_vector(find_heterogeneous_vector(args[1]), Base.tail(args))
 end
+
 find_heterogeneous_vector(x::Base.Broadcast.Extruded) = x.x
 find_heterogeneous_vector(x) = x
 find_heterogeneous_vector(::Tuple{}) = nothing
 find_heterogeneous_vector(x::AbstractHeterogeneousVector, rest) = x
 find_heterogeneous_vector(::Any, rest) = find_heterogeneous_vector(rest)
 
-function Base.similar(bc::Broadcast.Broadcasted{Broadcast.Style{AbstractHeterogeneousVector{Names}}}) where {Names}
+function Base.similar(bc::Broadcast.Broadcasted{AbstractHeterogeneousVectorStyle{Names}}) where {Names}
     hv = find_heterogeneous_vector(bc)
     similar(hv)
 end
+
 function Base.similar(
-        bc::Broadcast.Broadcasted{Broadcast.Style{AbstractHeterogeneousVector{Names}}},
+        bc::Broadcast.Broadcasted{AbstractHeterogeneousVectorStyle{Names}},
         ::Type{ElType}) where {Names, ElType}
     hv = find_heterogeneous_vector(bc)
     similar_x = map(NamedTuple(hv)) do field
@@ -96,7 +114,7 @@ end
 # The answer is: Yes, it is far easier to use recursion here, but once the broadcasts get complicated enough,
 # Julia gives up on optimizing out the unpacking, leaving the macro expansion to runtime, hampering performance.
 @generated function unpack_broadcast(
-        bc::Broadcast.Broadcasted{BcStyle, Axes, F, Args}, ::Val{field}
+        ::Broadcast.Broadcasted{BcStyle, Axes, F, Args}, ::Val{field}
 ) where {BcStyle, Axes, F, Args, field}
     # Defines some constants
     generate_info(F, Args, arg_path) = BcInfo(BcStyle, F, Args, arg_path)
@@ -187,7 +205,7 @@ julia> result.b
 5.0
 ```
 """
-function Base.copy(bc::Broadcast.Broadcasted{Broadcast.Style{AbstractHeterogeneousVector{Names}}}) where {Names}
+function Base.copy(bc::Broadcast.Broadcasted{PureHeterogeneousVectorStyle{Names}}) where {Names}
     function map_fun(::Val{name}) where {name}
         bc_unpacked = unpack_broadcast(bc, Val(name))
         Broadcast.materialize(bc_unpacked)
@@ -238,7 +256,7 @@ julia> v.b
 @inline Base.@constprop :aggressive function Base.copyto!(
         dest::AbstractHeterogeneousVector{T, S},
         bc::Broadcast.Broadcasted{
-            Broadcast.Style{AbstractHeterogeneousVector{Names}}, Axes, F, Args}
+            PureHeterogeneousVectorStyle{Names}, Axes, F, Args}
 ) where {T, S, Names, Axes, F, Args <: Tuple}
     if fieldnames(S) != Names
         throw(ArgumentError("Field name mismatch: $(fieldnames(S)) vs $(Names)"))
@@ -323,7 +341,7 @@ julia> residuals
 """
 @inline Base.@constprop :aggressive function Base.copyto!(
         dest::AbstractArray,
-        bc::Broadcast.Broadcasted{Broadcast.Style{AbstractHeterogeneousVector{Names}}}
+        bc::Broadcast.Broadcasted{PureHeterogeneousVectorStyle{Names}}
 ) where {Names}
     hv = find_heterogeneous_vector(bc)
     dest_idx = firstindex(dest)
@@ -335,6 +353,28 @@ julia> residuals
         Broadcast.materialize!(dest_segment, bc_unpacked)
     end
     map(map_fun, Val.(Names))
+    return dest
+end
+
+@generated function unpack_broadcast(
+        ::Broadcast.Broadcasted{BcStyle, Axes, F, Args}, ::Val{field}, segment_range
+) where {BcStyle <: MixedHeterogeneousVectorStyle, Axes, F, Args, field}
+    # TODO
+end
+
+@inline Base.@constprop :aggressive function Base.copy(
+    bc::Broadcast.Broadcasted{MixedHeterogeneousVectorStyle{Names}}
+) where {Names}
+    hv = find_heterogeneous_vector(bc)
+    segment_ranges = _compute_segment_ranges(NamedTuple(hv))
+    function map_fun(::Val{name}) where {name}
+        segment_range = segment_ranges[name]
+        bc_unpacked = unpack_broadcast(bc, Val(name), segment_range)
+        # dest_segment = view(dest, dest_idx .+ segment_range)
+        Broadcast.materialize(bc_unpacked)
+    end
+    res_args = map(map_fun, Val.(Names))
+    HeterogeneousVector(NamedTuple{Names}(res_args))
     return dest
 end
 
