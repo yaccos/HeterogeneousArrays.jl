@@ -71,3 +71,10 @@ end
         @test res_broadcasted ≈ res_expected
     end
 end
+
+
+@testset "Multi-dimensional array broadcast is rejected" begin
+        hv = HeterogeneousVector(a=1.0u"m", b=2.0u"m")
+        mat = reshape([1.0, 2.0], 1, 2)
+        @test_throws ArgumentError mat .* hv
+end

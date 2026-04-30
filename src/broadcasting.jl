@@ -56,13 +56,62 @@ function Base.BroadcastStyle(::PureHeterogeneousVectorStyle{Names},
     PureHeterogeneousVectorStyle{Names}()
 end
 
+function Base.BroadcastStyle(::MixedHeterogeneousVectorStyle{Names},
+        ::MixedHeterogeneousVectorStyle{Names}) where {Names}
+    MixedHeterogeneousVectorStyle{Names}()
+end
+
+function Base.BroadcastStyle(::PureHeterogeneousVectorStyle{Names},
+        ::MixedHeterogeneousVectorStyle{Names}) where {Names}
+    MixedHeterogeneousVectorStyle{Names}()
+end
+
+function Base.BroadcastStyle(::MixedHeterogeneousVectorStyle{Names},
+        ::PureHeterogeneousVectorStyle{Names}) where {Names}
+    MixedHeterogeneousVectorStyle{Names}()
+end
+
+function Base.BroadcastStyle(::MixedHeterogeneousVectorStyle{Names1},
+        ::MixedHeterogeneousVectorStyle{Names2}) where {Names1, Names2}
+    error("Cannot broadcast heterogeneous vectors with different field names: $(Names1) vs $(Names2)")
+end
+
+function Base.BroadcastStyle(::PureHeterogeneousVectorStyle{Names1},
+        ::MixedHeterogeneousVectorStyle{Names2}) where {Names1, Names2}
+    error("Cannot broadcast heterogeneous vectors with different field names: $(Names1) vs $(Names2)")
+end
+
+function Base.BroadcastStyle(::MixedHeterogeneousVectorStyle{Names1},
+        ::PureHeterogeneousVectorStyle{Names2}) where {Names1, Names2}
+    error("Cannot broadcast heterogeneous vectors with different field names: $(Names1) vs $(Names2)")
+end
+
 function Base.BroadcastStyle(style::AbstractHeterogeneousVectorStyle,
         ::Base.Broadcast.BroadcastStyle)
     style
 end
 
-function Base.BroadcastStyle(::PureHeterogeneousVectorStyle{Names}, ::Base.Broadcast.AbstractArrayStyle{1}) where {Names}
+# Any 1D array style (including custom styles) mixed with a heterogeneous vector
+# should produce mixed broadcasting semantics.
+function Base.BroadcastStyle(::PureHeterogeneousVectorStyle{Names},
+        ::Style) where {Names, Style <: Base.Broadcast.AbstractArrayStyle{1}}
     MixedHeterogeneousVectorStyle{Names}()
+end
+
+# Explicitly handle DefaultArrayStyle to avoid ambiguity with Base.Broadcast rules.
+# Scalars keep pure style semantics.
+function Base.BroadcastStyle(::PureHeterogeneousVectorStyle{Names}, ::Base.Broadcast.DefaultArrayStyle{0}) where {Names}
+    PureHeterogeneousVectorStyle{Names}()
+end
+
+# Default 1D arrays should use mixed semantics.
+function Base.BroadcastStyle(::PureHeterogeneousVectorStyle{Names}, ::Base.Broadcast.DefaultArrayStyle{1}) where {Names}
+    MixedHeterogeneousVectorStyle{Names}()
+end
+
+# N-dimensional default arrays (except 0D and 1D handled above) are not supported.
+function Base.BroadcastStyle(::PureHeterogeneousVectorStyle{Names}, ::Base.Broadcast.DefaultArrayStyle{N}) where {Names, N}
+    throw(ArgumentError("Cannot broadcast AbstractHeterogeneousVector with AbstractArray{$N}; only scalar and 1D array styles are supported"))
 end
 
 # Helper function to find HeterogeneousVector in broadcast arguments
@@ -114,7 +163,7 @@ end
 # The answer is: Yes, it is far easier to use recursion here, but once the broadcasts get complicated enough,
 # Julia gives up on optimizing out the unpacking, leaving the macro expansion to runtime, hampering performance.
 @generated function unpack_broadcast(
-        ::Broadcast.Broadcasted{BcStyle, Axes, F, Args}, ::Val{field}
+    bc::Broadcast.Broadcasted{BcStyle, Axes, F, Args}, ::Val{field}
 ) where {BcStyle, Axes, F, Args, field}
     # Defines some constants
     generate_info(F, Args, arg_path) = BcInfo(BcStyle, F, Args, arg_path)
@@ -356,10 +405,50 @@ julia> residuals
     return dest
 end
 
-@generated function unpack_broadcast(
-        ::Broadcast.Broadcasted{BcStyle, Axes, F, Args}, ::Val{field}, segment_range
-) where {BcStyle <: MixedHeterogeneousVectorStyle, Axes, F, Args, field}
-    # TODO
+@generated function unpack_broadcast(bc::Broadcast.Broadcasted{BcStyle, Axes, F, Args}, ::Val{field}, segment_range) where {BcStyle <: MixedHeterogeneousVectorStyle, Axes, F, Args, field}
+    generate_info(F, Args, arg_path) = BcInfo(BcStyle, F, Args, arg_path)
+    bc_stack = Vector{BcInfo{BcStyle}}()
+    push!(bc_stack, generate_info(F, Args, :bc))
+    res_broadcast = nothing
+    while !isempty(bc_stack)
+        bc_info = pop!(bc_stack)
+        expr = bc_info.expr
+        args_expr = :(getfield($expr, :args))
+        res = bc_info.res_args
+        if !(res_broadcast isa Nothing)
+            push!(res, res_broadcast)
+        end
+        arg_types = bc_info.Args.parameters
+        nargs = length(arg_types)
+        ArgT_is_bc = false
+        while bc_info.current_arg < nargs
+            bc_info.current_arg += 1
+            i = bc_info.current_arg
+            current_arg_expr = :(getfield($args_expr, $(i)))
+            ArgT = arg_types[i]
+            if ArgT <: Broadcast.Broadcasted{BcStyle}
+                push!(bc_stack, bc_info)
+                new_info = BcInfo(ArgT, current_arg_expr)
+                push!(bc_stack, new_info)
+                ArgT_is_bc = true
+                break
+            end
+
+            if ArgT <: AbstractHeterogeneousVector
+                current_arg_expr = :(getproperty($current_arg_expr, $(QuoteNode(field))))
+            elseif ArgT <: AbstractArray
+                current_arg_expr = :(view($current_arg_expr, Broadcast.Broadcasted(+ , (firstindex($current_arg_expr), $segment_range))))
+            end
+            push!(res, current_arg_expr)
+        end
+        if ArgT_is_bc
+            res_broadcast = nothing
+        else
+            arg_tuple_expr = :(tuple($(res...)))
+            res_broadcast = :(Broadcast.Broadcasted(getfield($expr, :f), $arg_tuple_expr))
+        end
+    end
+    return res_broadcast
 end
 
 @inline Base.@constprop :aggressive function Base.copy(
@@ -369,11 +458,12 @@ end
     segment_ranges = _compute_segment_ranges(NamedTuple(hv))
     function map_fun(::Val{name}) where {name}
         segment_range = segment_ranges[name]
+        println(typeof(segment_range))
         bc_unpacked = unpack_broadcast(bc, Val(name), segment_range)
         Broadcast.materialize(bc_unpacked)
     end
     res_args = map(map_fun, Val.(Names))
-    HeterogeneousVector(NamedTuple{Names}(res_args))
+    return HeterogeneousVector(NamedTuple{Names}(res_args))
 end
 
 # Show methods for AbstractHeterogeneousVector

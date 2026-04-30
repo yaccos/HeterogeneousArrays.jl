@@ -2,6 +2,7 @@ using HeterogeneousArrays
 using Test
 using Unitful
 using BenchmarkTools
+using OffsetArrays
 
 @testset "HeterogeneousArrays.jl" begin
     include("test_interface.jl")
