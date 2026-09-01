@@ -1,5 +1,6 @@
 using LinearAlgebra, BenchmarkTools
 import Unitful
+import FlexUnits
 import ComponentArrays: ComponentVector
 import RecursiveArrayTools
 import RecursiveArrayTools: ArrayPartition
@@ -33,8 +34,23 @@ v0_unitful = v0_raw * Unitful.u"km/s"
 μ_unitful = μ_raw * Unitful.u"km^3/s^2"
 Δt_unitful = Δt_raw * Unitful.u"s"
 
-tspan_raw = (0.0, Δt_raw)
+r0_flex = r0_raw .* FlexUnits.UnitRegistry.u"km"
+v0_flex = v0_raw .* FlexUnits.UnitRegistry.u"km/s"
+μ_flex = μ_raw * FlexUnits.UnitRegistry.u"km^3/s^2"
+Δt_flex = Δt_raw * FlexUnits.UnitRegistry.u"s"
+
+@kwdef struct OrbitalState{T} <: FlexUnits.QuantFieldVector{2, Vector{T}}
+    r ::Vector{FlexUnits.Quantity{T, FlexUnits.UnitRegistry.D"km"}}
+    v ::Vector{FlexUnits.Quantity{T, FlexUnits.UnitRegistry.D"km/s"}}
+end
+
+u0_flex = OrbitalState{Float64}(r=r0_flex, v=v0_flex)
+
+
+
+_tspan_raw = (0.0, Δt_raw)
 tspan_unitful = (0.0 * Unitful.u"s", Δt_unitful)
+tspan_flex = (0.0 * FlexUnits.UnitRegistry.u"s", Δt_flex)
 
 function named_initial_conditions(unit_handling::Symbol)
     if unit_handling === :none
@@ -89,6 +105,19 @@ function f_heterogeneous_inplace!(dy, y, μ, t)
     return dy
 end
 
+function f_quantfield(y, μ, t)
+    r_mag = norm(y.r)
+    dr = y.v
+    dv = -μ .* y.r / r_mag^3
+    return ustrip(DimsMod{FlexUnits.UnitRegistry.D"1/s"}(OrbitalState, r=dr, v=dv))
+end
+
+prob_flex = DE.ODEProblem(f_quantfield, u0_flex, tspan_flex, μ_flex)
+sol_flex = DE.solve(prob_flex, alg = DE.Tsit5(), adaptive = true)
+
+
+
+
 function build_case(array_structure::Symbol, unit_handling::Symbol, ode_interface::Symbol)
     r, v, μ, dt = named_initial_conditions(unit_handling)
     tspan = unit_handling === :none ? tspan_raw : tspan_unitful
@@ -103,6 +132,9 @@ function build_case(array_structure::Symbol, unit_handling::Symbol, ode_interfac
     elseif array_structure === :heterogeneousvector
         u0 = HeterogeneousVector(r = r, v = v)
         f = ode_interface === :allocating ? f_heterogeneous_alloc : f_heterogeneous_inplace!
+    elseif array_structure === :fieldvector
+        u0 = HeterogeneousVector(r = r, v = v)
+
     else
         error("Unknown array structure: $array_structure")
     end
