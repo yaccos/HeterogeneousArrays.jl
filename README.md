@@ -48,7 +48,7 @@ end
 params = (9.81u"m/s^2", 1.0u"m")
 tspan = (0.0u"s", 10.0u"s")
 prob = ODEProblem(pendulum_eom, u0, tspan, params)
-sol = DE.solve(prob, DE.Vern8())
+sol = solve(prob, Vern8())
 ```
 
 ### 2. Absolute vs. Relative Errors
@@ -58,7 +58,7 @@ In SciML solvers (like `DifferentialEquations.jl`), you can provide tolerances. 
 ```julia
 # Absolute tolerance must match the dimensions of u0
 abstol_struct = 1e-8 .* oneunit.(u0)
-sol = DE.solve(prob, DE.Vern8(), abstol = abstol_struct)
+sol = solve(prob, Vern8(), abstol = abstol_struct)
 
 ```
 
