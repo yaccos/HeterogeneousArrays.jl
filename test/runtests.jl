@@ -11,4 +11,7 @@ using OffsetArrays
     include("test_nesting.jl")
     include("test_performance.jl")
     include("test_printing.jl")
+
+    include("collectionvector_test_utilities.jl")
+    include("test_collectionvector.jl")
 end
