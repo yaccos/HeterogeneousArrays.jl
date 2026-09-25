@@ -19,6 +19,13 @@ Base.size(::AbstractHeterogeneousVector)
 Base.iterate(::AbstractHeterogeneousVector, ::Any)
 ```
 
+## Reductions
+
+```@docs
+Base.mapreduce(::Any, ::Any, ::AbstractHeterogeneousVector)
+Base.any(::Function, ::AbstractHeterogeneousVector)
+```
+
 ## Property Access
 
 ```@docs
