@@ -136,8 +136,14 @@ function Base.setindex!(hv::AbstractHeterogeneousVector{T, S}, val, idx::Int) wh
     throw(BoundsError(hv, idx))
 end
 
+_fields(hv::AbstractHeterogeneousVector) = values(NamedTuple(hv))
+
 _field_length(field::Ref) = 1
 _field_length(field::AbstractArray) = length(field)
+
+# The `j`-th element of a field in linear order (also for non-standard indices)
+@inline _field_element(field::Ref, j) = field[]
+@inline _field_element(field::AbstractArray, j) = @inbounds field[firstindex(field) + j - 1]
 
 """
     Base.length(hv::AbstractHeterogeneousVector) -> Int
@@ -188,37 +194,18 @@ Base.firstindex(hv::AbstractHeterogeneousVector) = 1
 Base.lastindex(hv::AbstractHeterogeneousVector) = length(hv)
 
 # Flat Iteration Support
-struct Chain{T <: Tuple}
-    xss::T
-end
-chain(xss...) = Chain(xss)
-Base.length(it::Chain{Tuple{}}) = 0
-Base.length(it::Chain) = sum(length, it.xss)
-Base.eltype(::Type{Chain{T}}) where {T} = typejoin([eltype(t) for t in T.parameters]...)
-
-function Base.iterate(it::Chain)
-    i = 1
-    xs_state = nothing
-    while i <= length(it.xss)
-        xs_state = iterate(it.xss[i])
-        xs_state !== nothing && return xs_state[1], (i, xs_state[2])
-        i += 1
+# The state is `(field index, element index)`; `k` is the index of the first field in `fields`.
+@inline _iterate_fields(::Tuple{}, fi, j, k) = nothing
+@inline function _iterate_fields(fields::Tuple, fi, j, k)
+    if fi == k
+        field = first(fields)
+        j <= _field_length(field) && return _field_element(field, j), (fi, j + 1)
+        fi, j = fi + 1, 1  # continue with the next field
     end
-    return nothing
+    return _iterate_fields(Base.tail(fields), fi, j, k + 1)
 end
 
-function Base.iterate(it::Chain, state)
-    i, xs_state = state
-    xs_state = iterate(it.xss[i], xs_state)
-    while xs_state == nothing
-        i += 1
-        i > length(it.xss) && return nothing
-        xs_state = iterate(it.xss[i])
-    end
-    return xs_state[1], (i, xs_state[2])
-end
-
-Base.iterate(x::AbstractHeterogeneousVector) = iterate(Chain(values(NamedTuple(x))))
+Base.iterate(hv::AbstractHeterogeneousVector) = iterate(hv, (1, 1))
 
 """
     Base.iterate(hv::AbstractHeterogeneousVector) -> Union{Tuple, Nothing}
@@ -234,6 +221,9 @@ elements in sequence.
 - On first call: `(element, state)` or `nothing` if the vector is empty
 - On subsequent calls with state: next `(element, state)` or `nothing` when exhausted
 
+# Performance
+Iteration does not allocate, but is only type-stable if all fields have the same element type.
+
 # Examples
 ```jldoctest
 julia> using HeterogeneousArrays
@@ -248,6 +238,7 @@ julia> for (i, element) in enumerate(v)
 3: 3.0
 ```
 """
-function Base.iterate(x::AbstractHeterogeneousVector, state)
-    iterate(Chain(values(NamedTuple(x))), state)
+function Base.iterate(hv::AbstractHeterogeneousVector, state)
+    fi, j = state
+    return _iterate_fields(_fields(hv), fi, j, 1)
 end

@@ -35,6 +35,7 @@ export AbstractHeterogeneousVector, HeterogeneousVector
 # Include components in logical order
 include("types.jl")
 include("indexing.jl")
+include("reductions.jl")
 include("allocation.jl")
 include("broadcasting.jl")
 include("printing.jl")
