@@ -124,10 +124,19 @@ fieldlen(v) = 1
 # TODO: right now we check for a manual is_storable implementation. Could check for
 # `hasmethod` on the needed functions instead.
 function checkelement(name, v)
-    Q = typeof(firstelem(v))
-    is_storable(Q) || throw(ArgumentError(
+    unsupported(Q) = ArgumentError(
         "Field '$name' has element type $Q, which CollectionVector does not support. " *
-        "Implement is_storable, rawtype, field_type, strip_type, attach_type and elementtype for it."))
+        "Implement is_storable, rawtype, field_type, strip_type, attach_type and elementtype for it.")
+    if v isa AbstractArray && !isconcretetype(eltype(v))
+        # Abstract eltype (e.g. `Vector{Any}`): check all elements
+        for x in v
+            is_storable(typeof(x)) || throw(unsupported(typeof(x)))
+        end
+    else
+        # Concrete eltype: cchecl only the first
+        Q = typeof(firstelem(v))
+        is_storable(Q) || throw(unsupported(Q))
+    end
     return nothing
 end
 

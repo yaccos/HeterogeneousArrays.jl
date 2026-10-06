@@ -37,6 +37,9 @@ using HeterogeneousArrays: HeterogeneousArrays, rawdata, shapeof, attach
             e = try CollectionVector(a = bad); catch e; e; end
             @test e isa ArgumentError && occursin("does not support", e.msg) && occursin("is_storable", e.msg)
         end
+        # Abstract eltype: an unsupported element past the first one is also caught
+        e = try CollectionVector(a = Any[1.0u"m", "x"]); catch e; e; end
+        @test e isa ArgumentError && occursin("element type String", e.msg) && occursin("is_storable", e.msg)
         e = try CollectionVector(a = big(1.0)u"m"); catch e; e; end
         @test e isa ArgumentError && occursin("isbits", e.msg)
     end
