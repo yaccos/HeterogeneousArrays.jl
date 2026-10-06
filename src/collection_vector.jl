@@ -140,8 +140,13 @@ function checkelement(name, v)
     return nothing
 end
 
-# Storage type contributed by a field: promoted over all its elements
-fieldrawtype(v::AbstractArray) = promote_type(map(x -> rawtype(typeof(x)), v)...)
+# Storage type contributed by a field.
+# Promoted over all elements if not concrete.
+function fieldrawtype(v::AbstractArray)
+    Q = eltype(v)
+    isconcretetype(Q) && return rawtype(Q)
+    return mapreduce(x -> rawtype(typeof(x)), promote_type, v)
+end
 fieldrawtype(v) = rawtype(typeof(v))
 
 # The reinterpret view over an array field is only legitimate if an element is laid out
