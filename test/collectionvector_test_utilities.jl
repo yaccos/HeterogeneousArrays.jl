@@ -27,7 +27,6 @@ function HeterogeneousArrays.strip_type(u::Symbol, q::TaggedNumber{T, V}) where 
     V === u || error("unit mismatch: $V vs $u")
     q.value
 end
-HeterogeneousArrays.attach_type(u::Symbol, x) = TaggedNumber{typeof(x), u}(x)
 HeterogeneousArrays.elementtype(::Type{T}, u::Symbol) where {T} = TaggedNumber{T, u}
 
 # A third-party subtype of `Unitful.AbstractQuantity`, to check that the Unitful methods of the
