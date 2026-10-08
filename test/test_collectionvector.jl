@@ -107,7 +107,7 @@ end
     c = CollectionVector(z = [1.0 + 2im, 3.0 + 4im], r = 5.0, s = 1.0 + 0im)
     @test rawdata(c) == [1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 0.0]        # two real slots per complex element
     @test eltype(rawdata(c)) == Float64
-    @test shapeof(c) == (z = (1:4, HeterogeneousArrays.ComplexParts()), r = (5, nothing), s = (6, HeterogeneousArrays.ComplexParts()))
+    @test shapeof(c) == (z = (1:4, HeterogeneousArrays.ComplexField()), r = (5, nothing), s = (6, HeterogeneousArrays.ComplexField()))
     @test length(c) == 7                                            # flat indexing counts slots
     @test eltype(c) == Float64
 

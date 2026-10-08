@@ -97,9 +97,9 @@ elementtype(::Type{T}, u::U) where {T, U <: Unitful.Units} = Unitful.Quantity{T,
 # TODO: support complex *quantities* (`[1+2im]u"m"`) (we require Unitful.AbstractQuantity{<:Real} above)
 is_storable(::Type{<:Complex{<:Real}}) = true
 rawtype(::Type{Complex{T}}) where {T} = T # storage eltype is the real part type
-struct ComplexParts end
-field_type(::Complex) = ComplexParts()    # custom field type
-elementtype(::Type{T}, ::ComplexParts) where {T} = Complex{T}
+struct ComplexField end
+field_type(::Complex) = ComplexField()    # custom field type
+elementtype(::Type{T}, ::ComplexField) where {T} = Complex{T}
 
 # Constructor helpers built on the API
 firstelem(v::AbstractArray) = first(v)
