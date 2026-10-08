@@ -1,7 +1,7 @@
 name = "HeterogeneousArrays"
 uuid = "40d36c5c-e028-4551-8108-c37812a952b9"
-version = "0.1.1"
-authors = ["Jakob Peder Pettersen <jakobpeder.pettersen@gmail.com>", "Gregor Decristoforo <gregor.decristoforo@gmail.com>", "Julia Mikhailova <julia.mikhailova@uit.no>"]
+version = "0.2.0"
+authors = ["Jakob Peder Pettersen <jakobpeder.pettersen@gmail.com>", "Etienne Gavazzi <etienne.gavazzi@uit.no>", "Gregor Decristoforo <gregor.decristoforo@gmail.com>", "Julia Mikhailova <julia.mikhailova@uit.no>"]
 
 [workspace]
 projects = ["docs"]
