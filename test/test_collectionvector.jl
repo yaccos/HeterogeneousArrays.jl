@@ -150,6 +150,22 @@ end
     xd.z[1] = 1.0 + 2im;            @test ForwardDiff.value(imag(xd.z[1])) == 2.0
 end
 
+@testset "CollectionVector: element layout" begin
+    # An element occupies one slot per component
+    t = CollectionVector(a = [Triple(1.0, 2.0, 3.0), Triple(4.0, 5.0, 6.0)], b = 7.0)
+    @test rawdata(t) == 1.0:7.0
+    @test length(t) == 7
+    @test t.a[2] === Triple(4.0, 5.0, 6.0)
+    @test t[5] === 5.0                                              # raw slot inside an element
+    t.a[1] = Triple(0.0, 0.0, 0.0);  @test rawdata(t)[1:3] == zeros(3)
+    @test attach(shapeof(t), rawdata(t)) == t
+    # Components that are not the storage type are rejected
+    @test_throws "Their components are (Float64, Float64, Float64), and all must be Float32" CollectionVector(
+        a = MislabeledTriple(1.0, 2.0, 3.0))
+    @test_throws "Field 'a': elements of type Triple do not have the memory layout" attach(
+        shapeof(t), ForwardDiff.Dual.(rawdata(t), 1.0))
+end
+
 @testset "CollectionVector: element API from outside" begin
     t = CollectionVector(a = [TaggedNumber(2.2, :kms), TaggedNumber(9.2, :kms)], b = TaggedNumber(1.0, :m))
     @test rawdata(t) == [2.2, 9.2, 1.0]

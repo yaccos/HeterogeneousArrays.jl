@@ -31,6 +31,30 @@ function TaggedNumber{T, U}(q::TaggedNumber{S, V}) where {T, U, S, V}
 end
 HeterogeneousArrays.elementtype(::Type{T}, u::Symbol) where {T} = TaggedNumber{T, u}
 
+# Structs of three Float64 that implement the element API. `Triple` is stored in Float64
+# slots. `MislabeledTriple` declares Float32 storage, which does not match its components.
+struct Triple
+    a::Float64
+    b::Float64
+    c::Float64
+end
+struct TripleField end
+HeterogeneousArrays.is_storable(::Type{Triple}) = true
+HeterogeneousArrays.rawtype(::Type{Triple}) = Float64
+HeterogeneousArrays.field_type(::Triple) = TripleField()
+HeterogeneousArrays.elementtype(::Type, ::TripleField) = Triple
+
+struct MislabeledTriple
+    a::Float64
+    b::Float64
+    c::Float64
+end
+struct MislabeledTripleField end
+HeterogeneousArrays.is_storable(::Type{MislabeledTriple}) = true
+HeterogeneousArrays.rawtype(::Type{MislabeledTriple}) = Float32
+HeterogeneousArrays.field_type(::MislabeledTriple) = MislabeledTripleField()
+HeterogeneousArrays.elementtype(::Type, ::MislabeledTripleField) = MislabeledTriple
+
 # A third-party subtype of `Unitful.AbstractQuantity`, to check that the Unitful methods of the
 # element API are not restricted to `Unitful.Quantity`. Unitful gives such a type `unit`,
 # `dimension` and the arithmetic for free, but `uconvert` (used by `ustrip(u, q)`) is only

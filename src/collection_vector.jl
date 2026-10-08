@@ -48,6 +48,11 @@ struct CollectionVector{T, S, D <: AbstractVector{T}, E} <: AbstractVector{E}
         # but not something like BigFloat).
         isbitstype(T) || throw(ArgumentError(
             "CollectionVector storage type must be an isbits number type, got $T"))
+        # Check that every field elementtype is made only of `T` values, and that `data` has
+        # as many slots as the shape `S` needs.
+        checklayouts(T, S)
+        length(data) == shape_length(T, S) || throw(DimensionMismatch(
+            "Data length $(length(data)) does not match shape length $(shape_length(T, S))"))
         return new{T, S, D, E}(data)
     end
 end
@@ -64,18 +69,16 @@ end
 #   rawtype(Q)            -> Type          plain isbits number type stored for a `Q` (storage vector eltype)
 #   field_type(q)         -> isbits value  what identifies the field's elements once the raw
 #                                          number is removed (a unit, `nothing`, ...); goes into `S`
-#   elementtype(T, ft)    -> Type          element type seen through the container; must have the
-#                                          memory layout of `slotcount(ft)` consecutive `T`s, as
-#                                          elements are read and written by reinterpreting their
-#                                          slots in the storage vector
-#   slotcount(ft)         -> Int           raw numbers per element (default 1)
+#   elementtype(T, ft)    -> Type          element type seen through the container. Elements are
+#                                          read and written by reinterpreting their slots in the
+#                                          storage vector, so every real-number component of this
+#                                          type must be a `T` (see `haslayout`)
 # A value `q` is stored as `convert(elementtype(T, ft), q)`: this must succeed for every value
 # that belongs in the field and throw for any other.
 
 is_storable(::Type) = false
 function field_type end
 function elementtype end
-slotcount(ft) = 1
 
 # Plain real numbers: no unit. Field type set to `nothing`.
 is_storable(::Type{<:Real}) = true
@@ -96,7 +99,6 @@ is_storable(::Type{<:Complex{<:Real}}) = true
 rawtype(::Type{Complex{T}}) where {T} = T # storage eltype is the real part type
 struct ComplexParts end
 field_type(::Complex) = ComplexParts()    # custom field type
-slotcount(::ComplexParts) = 2
 elementtype(::Type{T}, ::ComplexParts) where {T} = Complex{T}
 
 # Constructor helpers built on the API
@@ -135,14 +137,35 @@ function fieldrawtype(v::AbstractArray)
 end
 fieldrawtype(v) = rawtype(typeof(v))
 
-# Fields are read through a reinterpret view over their slots, which is only legitimate if an
-# element is laid out exactly like `slotcount(ft)` consecutive raw numbers.
+# A reinterpret view over an element's slots is valid when every real-number component of the
+# element type is `T`. The element then occupies `slotcount(T, ft)` slots with no padding.
+checklayouts(::Type{T}, S::NamedTuple) where {T} = checklayouts(T, keys(S), values(S))
+function checklayouts(::Type{T}, names::Tuple, specs::Tuple) where {T}
+    checklayout(first(names), T, first(specs)[2])
+    return checklayouts(T, Base.tail(names), Base.tail(specs))
+end
+# If it is empty
+checklayouts(::Type{T}, ::Tuple{}, ::Tuple{}) where {T} = nothing
+
 function checklayout(name, ::Type{T}, ft) where {T}
     Q = elementtype(T, ft)
-    sizeof(Q) == slotcount(ft) * sizeof(T) || throw(ArgumentError(
-        "Field '$name': elements of type $Q do not have the memory layout of $(slotcount(ft)) $T slot(s)"))
+    haslayout(T, Q) || throw(ArgumentError(
+        "Field '$name': elements of type $Q do not have the memory layout of consecutive $T " *
+        "slots. Their components are $(componenttypes(Q)), and all must be $T"))
     return nothing
 end
+
+haslayout(::Type{T}, ::Type{Q}) where {T, Q} = all(C -> C === T, componenttypes(Q))
+
+# Components are found by descending into struct fields, stopping at `Real` types
+# and at types without fields.
+componenttypes(::Type{Q}) where {Q <: Real} = (Q,)
+function componenttypes(::Type{Q}) where {Q}
+    isconcretetype(Q) && fieldcount(Q) > 0 || return (Q,)
+    return concat_componenttypes(fieldtypes(Q))
+end
+concat_componenttypes(ts::Tuple) = (componenttypes(first(ts))..., concat_componenttypes(Base.tail(ts))...)
+concat_componenttypes(::Tuple{}) = ()
 
 # Store `q` as element `j` of the field view `fv` (`nothing` for a scalar field), rethrowing
 # any conversion error with the field name and position.
@@ -180,16 +203,16 @@ function CollectionVector(nt::NamedTuple)
     isbitstype(T) || throw(ArgumentError(
         "CollectionVector storage type must be an isbits number type, got $T"))
     # The field type of a field is that of its first element; every other element is converted
-    # into it or rejected with a clear message. An element occupies `slotcount(ft)` slots.
+    # into it or rejected with an error. An element occupies `slotcount(T, ft)` slots.
     fts = map(v -> field_type(firstelem(v)), values(nt))
     foreach((name, ft) -> checklayout(name, T, ft), keys(nt), fts)
-    data = Vector{T}(undef, sum(map((v, ft) -> fieldlen(v) * slotcount(ft), values(nt), fts)))
+    data = Vector{T}(undef, sum(map((v, ft) -> fieldlen(v) * slotcount(T, ft), values(nt), fts)))
     # Walk through the fields, record values in the storage vector (`data`) and their
     # slot/field type in a `specs` vector
     offset = 0
     specs = Any[]
     for (name, v, ft) in zip(keys(nt), values(nt), fts)
-        k = slotcount(ft)
+        k = slotcount(T, ft)
         if v isa AbstractArray
             r = (offset + 1):(offset + k * length(v))
             fv = fieldview(data, r, ft)
@@ -219,12 +242,14 @@ CollectionVector(; kwargs...) = CollectionVector(NamedTuple(kwargs))
 end
 @inline eltypeof(::Type{T}, S::NamedTuple) where {T} = eltypeof(T, values(S))
 @inline function eltypeof(::Type{T}, specs::Tuple) where {T}
-    promote_type(elementtype(T, flat_ft(first(specs)[2])), eltypeof(T, Base.tail(specs)))
+    promote_type(elementtype(T, flat_ft(T, first(specs)[2])), eltypeof(T, Base.tail(specs)))
 end
 @inline eltypeof(::Type{T}, ::Tuple{}) where {T} = Union{}
 # Flat indexing works slot by slot: inside a multi-slot element a single slot has no field
 # type of its own, so it is read as a raw number.
-@inline flat_ft(ft) = slotcount(ft) == 1 ? ft : nothing
+@inline flat_ft(::Type{T}, ft) where {T} = slotcount(T, ft) == 1 ? ft : nothing
+# Number of storage slots one element of field type `ft` occupies
+@inline slotcount(::Type{T}, ft) where {T} = sizeof(elementtype(T, ft)) ÷ sizeof(T)
 
 
 
@@ -257,13 +282,11 @@ The shape parameter of an existing CollectionVector can be accessed with the
 [`shapeof`](@ref) function.
 """
 @inline function attach(S::NamedTuple, data::AbstractVector)
-    length(data) == shape_length(S) || throw(DimensionMismatch(
-        "Data length $(length(data)) does not match shape length $(shape_length(S))"))
     CollectionVector{eltype(data), S, typeof(data)}(data)
 end
-shape_length(S::NamedTuple) = sum(spec -> spec_len(spec[1], spec[2]), values(S))
-spec_len(r::UnitRange{Int}, ft) = length(r)
-spec_len(::Int, ft) = slotcount(ft)
+shape_length(::Type{T}, S::NamedTuple) where {T} = sum(spec -> spec_len(T, spec[1], spec[2]), values(S))
+spec_len(::Type, r::UnitRange{Int}, ft) = length(r)
+spec_len(::Type{T}, ::Int, ft) where {T} = slotcount(T, ft)
 
 """
     shapeof(x::CollectionVector) -> NamedTuple
@@ -301,9 +324,9 @@ shapeof(::CollectionVector{T, S}) where {T, S} = S
     end
 end
 # Scalar field: a value, the single element of the view over the field's slots.
-# Note that `slotcount(ft)` is a compile-time constant for a given shape, so this compiles
-# down to a plain load.
-@inline fieldview(data, i::Int, ft) = fieldview(data, i:(i + slotcount(ft) - 1), ft)[1]
+@inline fieldview(data, i::Int, ft) = fieldview(data, elementslots(data, i, ft), ft)[1]
+# Slots of the element that starts at slot `i`
+@inline elementslots(data, i::Int, ft) = i:(i + slotcount(eltype(data), ft) - 1)
 # Array field: a zero-copy view. A plain-number field is just a view. Anything else is the
 # same bytes reinterpreted as `Q` (which also handles multi-slot elements such as Complex).
 @inline function fieldview(data, r::UnitRange{Int}, ft)
@@ -325,7 +348,7 @@ end
 # Assignment writes through the view that `fieldview` returns, whose `setindex!` converts the
 # value into the element type or throws.
 @inline function setfield!(data, i::Int, ft, val)
-    fieldview(data, i:(i + slotcount(ft) - 1), ft)[1] = val
+    fieldview(data, elementslots(data, i, ft), ft)[1] = val
     return val
 end
 @inline function setfield!(data, r::UnitRange{Int}, ft, val::AbstractArray)
@@ -389,22 +412,22 @@ end
 
 @inline function slotget(data, i, specs::Tuple)
     spec = first(specs)
-    inslot(i, spec[1], spec[2]) && return fieldview(data, i, flat_ft(spec[2]))
+    inslot(eltype(data), i, spec[1], spec[2]) && return fieldview(data, i, flat_ft(eltype(data), spec[2]))
     return slotget(data, i, Base.tail(specs))
 end
 @inline slotget(data, i, ::Tuple{}) = throw(BoundsError(data, i))
 
 @inline function slotset!(data, v, i, specs::Tuple)
     spec = first(specs)
-    if inslot(i, spec[1], spec[2])
-        return setfield!(data, i, flat_ft(spec[2]), v)
+    if inslot(eltype(data), i, spec[1], spec[2])
+        return setfield!(data, i, flat_ft(eltype(data), spec[2]), v)
     end
     return slotset!(data, v, i, Base.tail(specs))
 end
 @inline slotset!(data, v, i, ::Tuple{}) = throw(BoundsError(data, i))
 
-@inline inslot(i::Int, s::Int, ft) = s <= i < s + slotcount(ft)
-@inline inslot(i::Int, r::UnitRange{Int}, ft) = i in r
+@inline inslot(::Type{T}, i::Int, s::Int, ft) where {T} = s <= i < s + slotcount(T, ft)
+@inline inslot(::Type, i::Int, r::UnitRange{Int}, ft) = i in r
 
 
 
