@@ -133,6 +133,23 @@ end
     @test cd.z[1] isa Complex{<:ForwardDiff.Dual}
 end
 
+@testset "CollectionVector: writes convert into the element type" begin
+    # Every write form converts the value into the field's element type, or throws
+    x = CollectionVector(r = 1.0, z = [1.0 + 2im, 3.0 + 4im], pos = [1.0, 2.0]u"m")
+    @test_throws Unitful.DimensionError x.r = 1.0u"m"
+    @test_throws Unitful.DimensionError x[2] = 1.0u"m"               # raw slot of a complex element
+    @test_throws InexactError x.r = 1.0 + 2im
+    x.r = 2.0u"m" / 1.0u"cm";       @test x.r ≈ 200.0                # dimensionless quantity
+    x.r = 3.0 + 0im;                @test x.r === 3.0
+    # Assigning a field from a view of itself
+    x.z = view(x.z, 2:-1:1);        @test x.z == [3.0 + 4im, 1.0 + 2im]
+    x.pos = view(x.pos, 2:-1:1);    @test x.pos == [2.0, 1.0]u"m"
+    # Writes into Dual storage, as during ForwardDiff
+    xd = attach(shapeof(x), ForwardDiff.Dual.(rawdata(x), 1.0))
+    xd.pos = [1.0, 2.0]u"cm";       @test ForwardDiff.value.(ustrip.(xd.pos)) ≈ [0.01, 0.02]
+    xd.z[1] = 1.0 + 2im;            @test ForwardDiff.value(imag(xd.z[1])) == 2.0
+end
+
 @testset "CollectionVector: element API from outside" begin
     t = CollectionVector(a = [TaggedNumber(2.2, :kms), TaggedNumber(9.2, :kms)], b = TaggedNumber(1.0, :m))
     @test rawdata(t) == [2.2, 9.2, 1.0]

@@ -23,9 +23,11 @@ Base.:(==)(a::TaggedNumber, b::TaggedNumber) = typeof(a) === typeof(b) && a.valu
 HeterogeneousArrays.is_storable(::Type{<:TaggedNumber}) = true
 HeterogeneousArrays.rawtype(::Type{TaggedNumber{T, U}}) where {T, U} = T
 HeterogeneousArrays.field_type(::TaggedNumber{T, U}) where {T, U} = U
-function HeterogeneousArrays.strip_type(u::Symbol, q::TaggedNumber{T, V}) where {T, V}
-    V === u || error("unit mismatch: $V vs $u")
-    q.value
+# Constructor from another TaggedNumber. CollectionVector stores elements with `convert`, and
+# for a `Number` subtype Base's `convert(T, x::Number)` calls this `T(x)`.
+function TaggedNumber{T, U}(q::TaggedNumber{S, V}) where {T, U, S, V}
+    V === U || error("unit mismatch: $V vs $U")
+    TaggedNumber{T, U}(convert(T, q.value))
 end
 HeterogeneousArrays.elementtype(::Type{T}, u::Symbol) where {T} = TaggedNumber{T, u}
 

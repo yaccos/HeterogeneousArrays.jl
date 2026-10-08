@@ -64,38 +64,29 @@ end
 #   rawtype(Q)            -> Type          plain isbits number type stored for a `Q` (storage vector eltype)
 #   field_type(q)         -> isbits value  what identifies the field's elements once the raw
 #                                          number is removed (a unit, `nothing`, ...); goes into `S`
-#   strip_type(ft, q)     -> raw number    convert `q` to the field type `ft` and strip, or throw
-#                                          if conversion fails
 #   elementtype(T, ft)    -> Type          element type seen through the container; must have the
 #                                          memory layout of `slotcount(ft)` consecutive `T`s, as
-#                                          elements are read by reinterpreting their slots in the
-#                                          storage vector
+#                                          elements are read and written by reinterpreting their
+#                                          slots in the storage vector
 #   slotcount(ft)         -> Int           raw numbers per element (default 1)
-# Elements that occupy several slots implement `strip_slots!` instead of the scalar
-# `strip_type` (see `Complex` below).
+# A value `q` is stored as `convert(elementtype(T, ft), q)`: this must succeed for every value
+# that belongs in the field and throw for any other.
 
 is_storable(::Type) = false
 function field_type end
-function strip_type end
 function elementtype end
 slotcount(ft) = 1
-
-# Slot-level version used by the container: defaults to the scalar API (one slot per element).
-strip_slots!(slots, ft, q) = (slots[1] = strip_type(ft, q); slots)
 
 # Plain real numbers: no unit. Field type set to `nothing`.
 is_storable(::Type{<:Real}) = true
 rawtype(::Type{Q}) where {Q <: Real} = Q
 field_type(::Real) = nothing
-strip_type(::Nothing, x::Real) = x
 elementtype(::Type{T}, ::Nothing) where {T} = T
 
 # Unitful quantities: the field type is the unit.
 is_storable(::Type{<:Unitful.AbstractQuantity{<:Real}}) = true
 rawtype(::Type{Q}) where {Q <: Unitful.AbstractQuantity} = Unitful.numtype(Q)
 field_type(q::Unitful.AbstractQuantity) = unit(q)
-strip_type(u::Unitful.Units, q::Unitful.AbstractQuantity) = ustrip(u, q)
-strip_type(u::Unitful.Units, x::Real) = ustrip(u, x) # use DimensionError message of Unitful
 elementtype(::Type{T}, u::U) where {T, U <: Unitful.Units} = Unitful.Quantity{T, Unitful.dimension(u), U}
 
 # Complex numbers: two real slots per element, so the storage stays real (solvers and
@@ -107,7 +98,6 @@ struct ComplexParts end
 field_type(::Complex) = ComplexParts()    # custom field type
 slotcount(::ComplexParts) = 2
 elementtype(::Type{T}, ::ComplexParts) where {T} = Complex{T}
-strip_slots!(slots, ::ComplexParts, z::Number) = (slots[1] = real(z); slots[2] = imag(z); slots)
 
 # Constructor helpers built on the API
 firstelem(v::AbstractArray) = first(v)
@@ -121,7 +111,8 @@ fieldlen(v) = 1
 function checkelement(name, v)
     unsupported(Q) = ArgumentError(
         "Field '$name' has element type $Q, which CollectionVector does not support. " *
-        "Implement is_storable, rawtype, field_type, strip_type and elementtype for it.")
+        "Extend `HeterogeneousArrays.is_storable`, `rawtype`, `field_type` and `elementtype` " *
+        "for it, and make sure `convert` into its element type works.")
     if v isa AbstractArray && !isconcretetype(eltype(v))
         # Abstract eltype (e.g. `Vector{Any}`): check all elements
         for x in v
@@ -153,12 +144,13 @@ function checklayout(name, ::Type{T}, ft) where {T}
     return nothing
 end
 
-# Convert one element into the field's slots, wrapping any error with field context.
-function stripelement!(slots, name, i, ft, q)
+# Store `q` as element `j` of the field view `fv` (`nothing` for a scalar field), rethrowing
+# any conversion error with the field name and position.
+function storeelement!(fv, name, j, ft, q)
     try
-        strip_slots!(slots, ft, q)
+        fv[something(j, 1)] = q
     catch e
-        where = i === nothing ? "value" : "element $i"
+        where = j === nothing ? "value" : "element $j"
         throw(ArgumentError("Field '$name': $where is $q, which cannot be expressed in the " *
             "field's type $ft (taken from the first element). Cause: $(sprint(showerror, e))"))
     end
@@ -200,13 +192,14 @@ function CollectionVector(nt::NamedTuple)
         k = slotcount(ft)
         if v isa AbstractArray
             r = (offset + 1):(offset + k * length(v))
+            fv = fieldview(data, r, ft)
             for (j, q) in enumerate(v)
-                stripelement!(view(data, (offset + (j - 1) * k + 1):(offset + j * k)), name, j, ft, q)
+                storeelement!(fv, name, j, ft, q)
             end
             push!(specs, (r, ft))
             offset += k * length(v)
         else
-            stripelement!(view(data, (offset + 1):(offset + k)), name, nothing, ft, v)
+            storeelement!(fieldview(data, (offset + 1):(offset + k), ft), name, nothing, ft, v)
             push!(specs, (offset + 1, ft))
             offset += k
         end
@@ -329,22 +322,17 @@ end
         throw(ArgumentError("CollectionVector has no field '$name'. Available fields: $(keys(S))"))
     end
 end
+# Assignment writes through the view that `fieldview` returns, whose `setindex!` converts the
+# value into the element type or throws.
 @inline function setfield!(data, i::Int, ft, val)
-    k = slotcount(ft)
-    k == 1 ? (data[i] = strip_type(ft, val)) : strip_slots!(view(data, i:(i + k - 1)), ft, val)
+    fieldview(data, i:(i + slotcount(ft) - 1), ft)[1] = val
     return val
 end
 @inline function setfield!(data, r::UnitRange{Int}, ft, val::AbstractArray)
-    k = slotcount(ft)
-    length(val) * k == length(r) || throw(DimensionMismatch(
-        "Cannot assign $(length(val)) elements to an array field of $(length(r) ÷ k) elements"))
-    if k == 1
-        data[r] .= strip_type.(Ref(ft), val)
-    else
-        for (j, q) in enumerate(val)
-            strip_slots!(view(data, (first(r) + (j - 1) * k):(first(r) + j * k - 1)), ft, q)
-        end
-    end
+    fv = fieldview(data, r, ft)
+    length(val) == length(fv) || throw(DimensionMismatch(
+        "Cannot assign $(length(val)) elements to an array field of $(length(fv)) elements"))
+    fv .= val
     return val
 end
 @inline function setfield!(data, r::UnitRange{Int}, u, val)
@@ -409,8 +397,7 @@ end
 @inline function slotset!(data, v, i, specs::Tuple)
     spec = first(specs)
     if inslot(i, spec[1], spec[2])
-        data[i] = strip_type(flat_ft(spec[2]), v)
-        return v
+        return setfield!(data, i, flat_ft(spec[2]), v)
     end
     return slotset!(data, v, i, Base.tail(specs))
 end
