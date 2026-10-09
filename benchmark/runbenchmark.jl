@@ -46,36 +46,6 @@ function named_initial_conditions(unit_handling::Symbol)
     end
 end
 
-const r_indicies = 1:3
-const v_indicies = 4:6
-
-function f_raw_alloc(y, μ, t)
-    r = @view y[r_indicies]
-    v = @view y[v_indicies]
-    r_mag = norm(r)
-    dr = v
-    dv = -μ .* r ./ r_mag^3
-    return [dr; dv]
-end
-
-function f_raw_inplace!(dy, y, μ, t)
-    r = @view y[r_indicies]
-    v = @view y[v_indicies]
-    dr = @view dy[r_indicies]
-    dv = @view dy[v_indicies]
-    r_mag = norm(r)
-    dr .= v
-    dv .= -μ .* r ./ r_mag^3
-    dy
-end
-
-function f_component_inplace!(dy, y, μ, t)
-    r_mag = norm(y.r)
-    dy.r .= y.v
-    dy.v .= -μ .* y.r ./ r_mag^3
-    dy
-end
-
 function f_component_alloc(y, μ, t)
     r_mag = norm(y.r)
     dr = y.v
@@ -123,10 +93,7 @@ function build_case(array_structure::Symbol, unit_handling::Symbol, ode_interfac
     r, v, μ, dt = named_initial_conditions(unit_handling)
     tspan = unit_handling === :none ? tspan_raw : tspan_unitful
 
-    if array_structure === :rawvector
-        u0 = [r; v]
-        f = ode_interface === :allocating ? f_raw_alloc : f_raw_inplace!
-    elseif array_structure === :componentvector
+    if array_structure === :componentvector
         u0 = ComponentVector(r = r, v = v)
         f = ode_interface === :allocating ? f_component_alloc : f_component_inplace!
     elseif array_structure === :arraypartition
@@ -143,7 +110,6 @@ function build_case(array_structure::Symbol, unit_handling::Symbol, ode_interfac
 end
 
 array_structures = [
-    (:rawvector, "Vector"),
     (:componentvector, "ComponentVector"),
     (:arraypartition, "ArrayPartition"),
     (:heterogeneousvector, "HeterogeneousVector")
@@ -166,8 +132,6 @@ for (array_symbol, array_label) in array_structures
             if array_symbol === :componentvector && unit_symbol === :unitful &&
                interface_symbol === :allocating
                 # Incompatible combination which always yields an error because of lack of interface compatibility
-                continue
-            elseif array_symbol === :rawvector && unit_symbol === :unitful
                 continue
             end
             prob, dt = build_case(array_symbol, unit_symbol, interface_symbol)
