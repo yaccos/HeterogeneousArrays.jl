@@ -148,7 +148,6 @@ end
 function build_case(array_structure::Symbol, unit_handling::Symbol, ode_interface::Symbol)
     r, v, μ, dt = named_initial_conditions(unit_handling)
     tspan = unit_handling === :none ? tspan_raw : (unit_handling === :unitful ? tspan_unitful_s : tspan_flex_s)
-
     if array_structure === :rawvector
         u0 = [r; v]
         f = ode_interface === :allocating ? f_raw_alloc : f_raw_inplace!
