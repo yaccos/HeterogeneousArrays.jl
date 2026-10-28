@@ -146,3 +146,7 @@ end
     @test_throws ArgumentError (1.0, 2.0, 3.0) .* hv
     @test_throws ArgumentError (2.0 .* hv) .+ (1.0, 2.0, 3.0)
 end
+
+@testset "No method ambiguities with Base.Broadcast" begin
+    @test isempty(Test.detect_ambiguities(HeterogeneousArrays, Base.Broadcast))
+end
