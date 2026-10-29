@@ -81,7 +81,8 @@ end
     @test u.a == [1.0, 2.0] && u.b === 3.0
     @test rawdata(u .* [10.0, 20.0, 30.0]) == [10.0, 40.0, 90.0]
     z = CollectionVector(c = [1.0 + 2im], b = 1.0)
-    @test_throws "Cannot broadcast field 'c' with an ordinary array: its elements occupy more than one storage slot each" z .* v
+    @test_throws "Cannot broadcast field 'c' with an ordinary array: its elements occupy more than one storage slot each" z .*
+                                                                                                                          v
     # Unit-free values do not convert into quantities
     x = CollectionVector(a = [0.0, 0.0]u"m", b = 0.0u"m")
     @test_throws "Field 'a': broadcasting into elements of type" x .= v
@@ -99,25 +100,31 @@ end
     z = CollectionVector(c = [1.0 + 2im], b = 1.0)
     @test_throws "Destination has length 3, the broadcast result has 2 storage slots" (zeros(3) .= abs.(z))
     r = CollectionVector(a = [1.0, 2.0], b = 3.0)
-    @test_throws "Destination has length 3, the broadcast result has 6 storage slots" (zeros(3) .= r .+ 0im)
+    @test_throws "Destination has length 3, the broadcast result has 6 storage slots" (zeros(3) .= r .+
+                                                                                                   0im)
     @test_throws "Cannot broadcast field 'c' with an ordinary array" (zeros(3) .= z .* 1)
 end
 
 @testset "CollectionVector broadcasting: rejected inputs" begin
     x = CollectionVector(θ = 0.1u"rad", pos = [1.0, 2.0]u"m")
     q = CollectionVector(q = 1.0)
-    @test_throws "Cannot broadcast CollectionVectors with different field names: (:θ, :pos) vs (:q,)" x .+ q
+    @test_throws "Cannot broadcast CollectionVectors with different field names: (:θ, :pos) vs (:q,)" x .+
+                                                                                                      q
     bc = Broadcast.instantiate(Broadcast.broadcasted(+, x, 1))
-    @test_throws "Cannot broadcast into a CollectionVector with fields (:q,) from a broadcast over fields (:θ, :pos)" copyto!(q, bc)
+    @test_throws "Cannot broadcast into a CollectionVector with fields (:q,) from a broadcast over fields (:θ, :pos)" copyto!(
+        q, bc)
     hv = HeterogeneousVector(θ = 0.1u"rad", pos = [1.0, 2.0]u"m")
     msg = "Cannot broadcast a CollectionVector (fields (:θ, :pos)) together with a HeterogeneousVector (fields (:θ, :pos))"
     @test_throws msg x .+ hv
     @test_throws msg hv .+ x
     @test_throws "Cannot broadcast a CollectionVector with a Tuple" x .+ (1.0, 2.0, 3.0)
-    @test_throws "Cannot broadcast a CollectionVector with a 2-dimensional array" x .+ ones(3, 3)
+    @test_throws "Cannot broadcast a CollectionVector with a 2-dimensional array" x .+
+                                                                                  ones(3, 3)
     @test_throws "Field 'θ': the broadcast produces elements of type String, which CollectionVector does not support" string.(x)
     # Complex results are storable only in unit-free fields
-    @test_throws "Field 'θ': the broadcast produces elements of type Quantity{ComplexF64" x .* (1 + 0im)
+    @test_throws "Field 'θ': the broadcast produces elements of type Quantity{ComplexF64" x .*
+                                                                                          (1 +
+                                                                                           0im)
     @test_throws Unitful.DimensionError x .+ 0im
     # Later elements must convert into the field type set by the first element
     seconds_above(p) = p > 3.5u"m" ? ustrip(p) * u"s" : p

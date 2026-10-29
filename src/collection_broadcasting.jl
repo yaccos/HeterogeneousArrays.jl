@@ -110,7 +110,8 @@ end
     segs = segments(T, S)
     qs = firstfieldresults(bc, segs, S, valnames(Val(keys(S))))
     Tnew = storagetype(qs)
-    return Tnew, NamedTuple{keys(S)}(resultspecs(Tnew, T, values(S), resultfieldtypes(qs), 0))
+    return Tnew,
+    NamedTuple{keys(S)}(resultspecs(Tnew, T, values(S), resultfieldtypes(qs), 0))
 end
 
 firstfieldresults(bc, segs, S, ::Tuple{}) = ()
@@ -125,7 +126,9 @@ end
 
 # Promotion of the storage types of the values `qs`
 storagetype(::Tuple{}) = Union{}
-storagetype(qs::Tuple) = promote_type(rawtype(typeof(first(qs))), storagetype(Base.tail(qs)))
+function storagetype(qs::Tuple)
+    promote_type(rawtype(typeof(first(qs))), storagetype(Base.tail(qs)))
+end
 
 # Field types of the values `qs`. They are singletons (a unit, `nothing`, ...), so every
 # argument of `resultspecs` is a compile-time constant and inference knows the result shape.
