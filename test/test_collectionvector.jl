@@ -377,3 +377,15 @@ end
     x .= view(x.a, 3:-1:1)
     @test rawdata(x) == [3.0, 2.0, 1.0]
 end
+
+@testset "CollectionVector: field loops stay inferred past two fields" begin
+    dest = CollectionVector(a = 1.0u"m", b = [1.0, 2.0]u"s", c = 1.0u"kg", d = [1.0, 2.0]u"A")
+    src = CollectionVector(a = 100.0u"cm", b = [1.0, 2.0]u"ms", c = 1.0u"g", d = [1.0, 2.0]u"mA")
+    copyto!(dest, src)
+    @test rawdata(dest) ≈ [1.0, 0.001, 0.002, 0.001, 0.001, 0.002]
+    @test (@allocated copyto!(dest, src)) == 0
+    x = CollectionVector(a = 1.0u"m", b = 2.0u"s", c = 3.0u"kg", d = 4.0u"A")
+    y = CollectionVector(a = 100.0u"cm", b = 2000.0u"ms", c = 3000.0u"g", d = 4000.0u"mA")
+    @test x ≈ y
+    @test (@allocated x ≈ y) == 0
+end

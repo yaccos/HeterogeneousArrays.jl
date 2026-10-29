@@ -410,8 +410,9 @@ end
 function Base.copyto!(dest::CollectionVector{<:Any, S1}, src::CollectionVector{
         <:Any, S2}) where {S1, S2}
     keys(S1) == keys(S2) || throw(layoutmismatch("field names", S1, S2))
-    checkfieldlayouts(Val(S1), Val(S2), Val(keys(S1)))
-    return copyfields!(dest, src, Val(keys(S1)))
+    names = valnames(Val(keys(S1)))
+    checkfieldlayouts(Val(S1), Val(S2), names)
+    return copyfields!(dest, src, names)
 end
 function layoutmismatch(what, S1, S2)
     return DimensionMismatch(
@@ -420,24 +421,40 @@ function layoutmismatch(what, S1, S2)
         "source shape:      $S2")
 end
 
+# The field names `names` as a tuple of `Val`s. The loops over the fields of a
+# CollectionVector recurse over such a tuple: inference widens a recursion that carries the
+# names in a `Val{names}` from the third field on, but recursion over a tuple of `Val`s keeps
+# things stable.
+# TODO: even if they stay type-stable, tuple recursions with more than 32 fields start to
+# allocate and slow down. Potential solutions can be @generated functions or
+# the UnrolledUtilities.jl package
+valnames(::Val{names}) where {names} = ntuple(i -> Val(names[i]), Val(length(names)))
+
 # Check that fields with the same names are of the same kind (scalar/array) and have the
 # same length.
-checkfieldlayouts(::Val, ::Val, ::Val{()}) = nothing
-@inline function checkfieldlayouts(::Val{S1}, ::Val{S2}, ::Val{names}) where {S1, S2, names}
-    name = first(names)
+@inline function checkfieldlayouts(v1::Val, v2::Val, names::Tuple)
+    checkfieldlayout(v1, v2, first(names))
+    return checkfieldlayouts(v1, v2, Base.tail(names))
+end
+@inline function checkfieldlayout(::Val{S1}, ::Val{S2}, ::Val{name}) where {S1, S2, name}
     d, s = getfield(S1, name)[1], getfield(S2, name)[1]
     (d isa Int) == (s isa Int) ||
         throw(layoutmismatch("field kinds (scalar/array)", S1, S2))
     length(d) == length(s) || throw(layoutmismatch("field lengths", S1, S2))
-    return checkfieldlayouts(Val(S1), Val(S2), Val(Base.tail(names)))
+    return nothing
 end
+checkfieldlayouts(::Val, ::Val, ::Tuple{}) = nothing
+
 # copy field values field by field using the `setproperty!` interface
-copyfields!(dest, src, ::Val{()}) = dest
-@inline function copyfields!(dest, src, ::Val{names}) where {names}
-    name = first(names)
-    setproperty!(dest, name, getproperty(src, name))
-    return copyfields!(dest, src, Val(Base.tail(names)))
+@inline function copyfields!(dest, src, names::Tuple)
+    copyfield!(dest, src, first(names))
+    return copyfields!(dest, src, Base.tail(names))
 end
+@inline function copyfield!(dest, src, ::Val{name}) where {name}
+    setproperty!(dest, name, getproperty(src, name))
+    return nothing
+end
+copyfields!(dest, src, ::Tuple{}) = dest
 
 # Redirect copy! to copyto!, to also get the shape error messages and unit conversion rather
 # than the less informative errors about resize!
@@ -451,18 +468,21 @@ function Base.isapprox(
         x::CollectionVector{<:Any, S1}, y::CollectionVector{
             <:Any, S2}; kwargs...) where {S1, S2}
     keys(S1) == keys(S2) || return false
-    return fieldsapprox(x, y, Val(keys(S1)); kwargs...)
+    return fieldsapprox(x, y, valnames(Val(keys(S1))), NamedTuple(kwargs))
 end
-# Recursion over the field names, carried in the type so that each name is a compile-time
-# constant and field access are inferred
-fieldsapprox(x, y, ::Val{()}; kwargs...) = true
-@inline function fieldsapprox(x, y, ::Val{names}; kwargs...) where {names}
-    a, b = getproperty(x, first(names)), getproperty(y, first(names))
-    # return false if one component is a scalar and one is an array.
+# The keyword arguments travel as one NamedTuple `kw`: splatting `kwargs...` through every
+# level of the recursion allocates on Julia 1.10.
+@inline function fieldsapprox(x, y, names::Tuple, kw)
+    fieldapprox(x, y, first(names), kw) || return false
+    return fieldsapprox(x, y, Base.tail(names), kw)
+end
+@inline function fieldapprox(x, y, ::Val{name}, kw) where {name}
+    a, b = getproperty(x, name), getproperty(y, name)
+    # A scalar field and an array field are never approximately equal.
     (a isa AbstractArray) == (b isa AbstractArray) || return false
-    isapprox(a, b; kwargs...) || return false
-    return fieldsapprox(x, y, Val(Base.tail(names)); kwargs...)
+    return isapprox(a, b; kw...)
 end
+fieldsapprox(x, y, ::Tuple{}, kw) = true
 
 ## Display
 function Base.summary(io::IO, x::CollectionVector{T, S}) where {T, S}

@@ -86,14 +86,6 @@ function segmentlist(::Type{T}, specs::Tuple) where {T}
     return (segment, segmentlist(T, Base.tail(specs))...)
 end
 
-# The field names `names` as a tuple of `Val`s. The loops over the fields in this file recurse
-# over such a tuple: inference widens a recursion that carries the names in a `Val{names}`
-# from the third field on, but recursion over a tuple of `Val`s keeps things stable
-# TODO: even if they stay type-stable, tuple recursions with more than 32 fields start to
-# allocate and slow down. Potential solutions can be @generated functions or
-# the UnrolledUtilities.jl package
-valnames(::Val{names}) where {names} = ntuple(i -> Val(names[i]), Val(length(names)))
-
 # First element of the per-field broadcast `bcf`. A scalar field (`Int` slot) gives a
 # 0-dimensional broadcast, an array field (`UnitRange` slot) a 1D one.
 function firstresult(bcf, ::Val{name}, ::Int) where {name}
