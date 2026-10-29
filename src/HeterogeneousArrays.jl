@@ -37,10 +37,10 @@ include("types.jl")
 include("indexing.jl")
 include("reductions.jl")
 include("allocation.jl")
+include("collection_vector.jl")
 include("broadcasting.jl")
 include("printing.jl")
 
-include("collection_vector.jl")
 export CollectionVector
 
 end # module
