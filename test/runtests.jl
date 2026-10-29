@@ -16,4 +16,5 @@ using OffsetArrays
 
     include("collectionvector_test_utilities.jl")
     include("test_collectionvector.jl")
+    include("test_collectionvector_broadcasting.jl")
 end
