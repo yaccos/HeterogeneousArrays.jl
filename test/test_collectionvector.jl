@@ -92,6 +92,13 @@ end
     @test_throws Unitful.DimensionError x.pos[1] = 1.0u"s"
     @test_throws ArgumentError x.pos = 1.0u"m"
     @test_throws DimensionMismatch x.pos = [1.0]u"m"
+
+    # `x.pos .= rhs` writes through the field view and is inferred
+    rhs = [3.0, 4.0]u"m"
+    assign!(x, rhs) = (x.pos .= rhs; nothing)
+    assign!(x, rhs)
+    @test x.pos == rhs
+    @test (@allocated assign!(x, rhs)) == 0
 end
 
 @testset "CollectionVector: flat indexing" begin

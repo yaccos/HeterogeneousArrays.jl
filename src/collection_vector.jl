@@ -324,6 +324,13 @@ end
     throw(ArgumentError("Cannot assign a scalar to array field spanning $(r); assign elementwise or with an array"))
 end
 
+# `x.pos .= rhs` lowers to `Base.dotgetproperty(x, :pos)`. The Base fallback does not
+# propagate the constant field name into `getproperty`, so the field view is not inferred
+# and the assignment dispatches at runtime.
+@inline Base.@constprop :aggressive function Base.dotgetproperty(x::CollectionVector, name::Symbol)
+    getproperty(x, name)
+end
+
 # For REPL tab completion of fields
 Base.propertynames(::CollectionVector{T, S}) where {T, S} = keys(S)
 
