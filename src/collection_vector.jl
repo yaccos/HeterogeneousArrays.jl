@@ -259,9 +259,14 @@ The shape parameter of an existing CollectionVector can be accessed with the
 @inline function attach(S::NamedTuple, data::AbstractVector)
     CollectionVector{eltype(data), S, typeof(data)}(data)
 end
-function shape_length(::Type{T}, S::NamedTuple) where {T}
-    sum(spec -> spec_len(T, spec[1], spec[2]), values(S))
+# Number of storage slots the shape `S` spans. Done as a recursion over the spec tuple to
+# keep things efficient (no runtime dispatch) with more than 32 fields.
+shape_length(::Type{T}, S::NamedTuple) where {T} = shape_length(T, values(S))
+function shape_length(::Type{T}, specs::Tuple) where {T}
+    slot, ft = first(specs)
+    return spec_len(T, slot, ft) + shape_length(T, Base.tail(specs))
 end
+shape_length(::Type, ::Tuple{}) = 0
 spec_len(::Type, r::UnitRange{Int}, ft) = length(r)
 spec_len(::Type{T}, ::Int, ft) where {T} = slotcount(T, ft)
 
@@ -312,10 +317,9 @@ field type from the shape.
     return slotview(getfield(x, :data), spec[1], spec[2])
 end
 @inline function slotview(data, i::Int, ft)
-    # `range` will almost always be 1 (unique slot), but can be 2 for complex scalars (they
-    # occupy two slots)
-    range = i:(i + slotcount(eltype(data), ft) - 1)
-    return slotview(data, range, ft)
+    # `r` will almost spans one slot, but it can be two for a complex scalar
+    r = i:(i + slotcount(eltype(data), ft) - 1)
+    return slotview(data, r, ft)
 end
 # A plain-number field is just a view. Anything else is the same bytes reinterpreted as `Q`
 # (which also handles multi-slot elements such as Complex).
@@ -330,8 +334,8 @@ end
     spec = fieldspec(S, name)
     return setfield!(getfield(x, :data), spec[1], spec[2], val)
 end
-# Assignment writes through the view that `slotview` returns, whose `setindex!` converts the
-# value into the element type or throws.
+# Assignment writes through the reinterpreted view that `slotview` returns. Indexing into
+# that view will convert the value to the element type or throw.
 @inline function setfield!(data, i::Int, ft, val)
     slotview(data, i, ft)[1] = val
     return val
@@ -347,10 +351,8 @@ end
     throw(ArgumentError("Cannot assign a scalar to array field spanning $(r); assign elementwise or with an array"))
 end
 
-# `x.pos .= rhs` lowers to `Base.dotgetproperty(x, :pos)`. Returning the slot view makes
-# `.=` write into scalar fields as well as array fields. The Base fallback does not propagate
-# the constant field name, so the view would not be inferred and the assignment would
-# dispatch at runtime.
+# `x.pos .= rhs` lowers to `Base.dotgetproperty(x, :pos)`. The slotview works for both
+# scalar and array fields.
 @inline Base.@constprop :aggressive function Base.dotgetproperty(x::CollectionVector, name::Symbol)
     slotview(x, name)
 end
