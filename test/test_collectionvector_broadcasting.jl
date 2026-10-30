@@ -131,4 +131,11 @@ end
     l = CollectionVector(a = [3.0, 4.0]u"m")
     @test_throws "Field 'a': broadcasting into elements of type Quantity{Float64, 𝐋" seconds_above.(l)
     @test_throws "Cause: DimensionError" x .= x .* 1.0u"s"
+    # Failing field get named in the error message. Earlier fields keep their new values
+    p = CollectionVector(a = [1.0, 2.0]u"m", b = 3.0u"m")
+    q = CollectionVector(a = [5.0, 6.0]u"m", b = 7.0u"s")
+    @test_throws "Field 'b': broadcasting into elements of type Quantity{Float64, 𝐋" p .= q
+    @test p.a == [5.0, 6.0]u"m" && p.b == 3.0u"m"
+    # TODO: add test that also change Tnew, e.g. Complex that turns into a Float64
+    # TODO: add test similar to seconds_above but that converts to ft
 end

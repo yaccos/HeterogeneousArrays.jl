@@ -219,7 +219,9 @@ Each field's results are converted into the element type of that field of `dest`
 `cm` into `m`, from `Float32` into `Float64`, or from a real number into a complex field. An
 error while evaluating or converting a field is rethrown as an `ArgumentError` whose message
 names the field and includes the original error. Fields are written in order, so the fields
-before the failing one already hold their new values.
+before the failing one already hold their new values. The failing field is found by
+re-evaluating the broadcast field by field into a scratch vector, after `dest` has been
+partly written. If no field fails on re-evaluation, the original error is rethrown unchanged.
 
 Arguments that may share memory with `dest`, other than `dest` itself, are copied first, so
 the right-hand side is read in full before any field is written. Ordinary 1D arrays are split
@@ -234,7 +236,13 @@ function Base.copyto!(dest::CollectionVector{<:Any, S},
     src = segmentsource(find_container(bc), dest)
     segs = segments(eltype(rawdata(src)), shapeof(src))
     bcu = unaliasargs(dest, bc)
-    broadcastfields!(dest, bcu, segs, valnames(Val(Names)))
+    names = valnames(Val(Names))
+    # One exception handler per assignment
+    try
+        broadcastfields!(dest, bcu, segs, names)
+    catch e
+        throw(failing_field_error(dest, bcu, segs, names, e))
+    end
     return dest
 end
 
@@ -246,29 +254,40 @@ end
 @inline function broadcastfield!(dest, bc, segs, ::Val{name}) where {name}
     bcf = unpack_broadcast(bc, Val(name), getfield(segs, name))
     spec = getfield(shapeof(dest), name)
-    return storefield!(dest, Val(name), spec[1], spec[2], bcf)
+    return storefield!(dest, Val(name), spec[1], bcf)
 end
-# Evaluate one field's broadcast into the destination, rethrowing any error with the
-# field name.
-function storefield!(dest, ::Val{name}, ::Int, ft, bcf) where {name}
-    try
-        setproperty!(dest, name, Broadcast.materialize(bcf))
-    catch e
-        throw(storeerror(name, eltype(rawdata(dest)), ft, e))
-    end
+# Evaluate one field's broadcast into the destination. A scalar field is assigned as a
+# value, an array field is written in place through its view.
+function storefield!(dest, ::Val{name}, ::Int, bcf) where {name}
+    setproperty!(dest, name, Broadcast.materialize(bcf))
     return nothing
 end
-function storefield!(dest, ::Val{name}, ::UnitRange{Int}, ft, bcf) where {name}
-    try
-        Broadcast.materialize!(getproperty(dest, name), bcf)
-    catch e
-        throw(storeerror(name, eltype(rawdata(dest)), ft, e))
-    end
+function storefield!(dest, ::Val{name}, ::UnitRange{Int}, bcf) where {name}
+    Broadcast.materialize!(getproperty(dest, name), bcf)
     return nothing
 end
-function storeerror(name, ::Type{T}, ft, e) where {T}
-    ArgumentError("Field '$name': broadcasting into elements of type " *
-                  "$(elementtype(T, ft)) failed. Cause: $(sprint(showerror, e))")
+
+# Error path of `copyto!`: redo the assignment field by field into a scratch vector and
+# return an `ArgumentError` naming the first field that throws, or the original error `e`
+# when none does. Runs once per failed broadcast.
+function failing_field_error(dest, bc, segs, names, e)
+    scratch = attach(shapeof(dest), similar(rawdata(dest)))
+    for name in names
+        err = field_error(scratch, bc, segs, name)
+        err === nothing || return err
+    end
+    return e
+end
+function field_error(scratch, bc, segs, ::Val{name}) where {name}
+    try
+        broadcastfield!(scratch, bc, segs, Val(name))
+    catch e
+        ft = getfield(shapeof(scratch), name)[2]
+        return ArgumentError("Field '$name': broadcasting into elements of type " *
+                             "$(elementtype(eltype(rawdata(scratch)), ft)) failed. " *
+                             "Cause: $(sprint(showerror, e))")
+    end
+    return nothing
 end
 
 """
