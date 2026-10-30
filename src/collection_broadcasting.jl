@@ -91,25 +91,20 @@ end
 # type of a `Q` is inferred as a singleton type (a unit, `Nothing`, ...), both come from `Q`
 # and no element is evaluated. Otherwise (e.g. a function whose result unit or realness
 # depends on the value) they come from the first element of the field's result.
-@inline function fieldresult(bcf, ::Val{name}, slot) where {name}
+@inline function fieldresult(bcf, ::Val{name}) where {name}
     Q = Broadcast.combine_eltypes(bcf.f, bcf.args)
     if isconcretetype(Q)
         checkresult(name, Q)
         FT = Base.promote_op(field_type, Q)
         Base.issingletontype(FT) && return (rawtype(Q), FT.instance)
     end
-    q = firstresult(bcf, Val(name), slot)
+    q = firstresult(bcf, Val(name))
     return (rawtype(typeof(q)), field_type(q))
 end
 
-# First element of the per-field broadcast `bcf`. A scalar field (`Int` slot) gives a
-# 0-dimensional broadcast, an array field (`UnitRange` slot) a 1D one.
-function firstresult(bcf, ::Val{name}, ::Int) where {name}
-    q = Broadcast.materialize(bcf)
-    checkresult(name, typeof(q))
-    return q
-end
-function firstresult(bcf, ::Val{name}, ::UnitRange{Int}) where {name}
+# First element of the per-field broadcast `bcf`, which is 0-dimensional for a scalar field
+# and 1D for an array field.
+function firstresult(bcf, ::Val{name}) where {name}
     bci = Broadcast.instantiate(bcf)
     q = bci[first(eachindex(bci))]
     checkresult(name, typeof(q))
@@ -139,7 +134,7 @@ fieldresults(bc, segs, S, ::Tuple{}) = ()
 end
 @inline function fieldresult(bc, segs, S, ::Val{name}) where {name}
     bcf = unpack_broadcast(bc, Val(name), getfield(segs, name))
-    return fieldresult(bcf, Val(name), getfield(S, name)[1])
+    return fieldresult(bcf, Val(name))
 end
 
 # Promotion of the storage types in the field results `rs`
@@ -264,19 +259,11 @@ broadcastfields!(dest, bc, segs, ::Tuple{}) = nothing
     broadcastfield!(dest, bc, segs, first(names))
     return broadcastfields!(dest, bc, segs, Base.tail(names))
 end
+# Evaluate one field's broadcast into the destination, through the view over the field's
+# slots.
 @inline function broadcastfield!(dest, bc, segs, ::Val{name}) where {name}
     bcf = unpack_broadcast(bc, Val(name), getfield(segs, name))
-    spec = getfield(shapeof(dest), name)
-    return storefield!(dest, Val(name), spec[1], bcf)
-end
-# Evaluate one field's broadcast into the destination. A scalar field is assigned as a
-# value, an array field is written in place through its view.
-function storefield!(dest, ::Val{name}, ::Int, bcf) where {name}
-    setproperty!(dest, name, Broadcast.materialize(bcf))
-    return nothing
-end
-function storefield!(dest, ::Val{name}, ::UnitRange{Int}, bcf) where {name}
-    Broadcast.materialize!(getproperty(dest, name), bcf)
+    Broadcast.materialize!(slotview(dest, name), bcf)
     return nothing
 end
 

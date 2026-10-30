@@ -99,6 +99,16 @@ end
     assign!(x, rhs)
     @test x.pos == rhs
     @test (@allocated assign!(x, rhs)) == 0
+
+    # `.=` also writes into a scalar field, through the one-element view over its slot
+    x.θ .= 90u"°"
+    @test rawdata(x)[1] ≈ π / 2
+    x.θ .= 2 .* x.θ
+    @test rawdata(x)[1] ≈ π
+    assignscalar!(x, q) = (x.θ .= q; nothing)
+    assignscalar!(x, 0.5u"rad")
+    @test x.θ === 0.5u"rad"
+    @test (@allocated assignscalar!(x, 0.2u"rad")) == 0
 end
 
 @testset "CollectionVector: flat indexing" begin

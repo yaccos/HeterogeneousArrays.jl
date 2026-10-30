@@ -209,8 +209,7 @@ function CollectionVector(nt::NamedTuple)
             push!(specs, (r, ft))
             offset += k * length(v)
         else
-            storeelement!(
-                fieldview(data, (offset + 1):(offset + k), ft), name, nothing, ft, v)
+            storeelement!(slotview(data, offset + 1, ft), name, nothing, ft, v)
             push!(specs, (offset + 1, ft))
             offset += k
         end
@@ -279,20 +278,48 @@ shapeof(::CollectionVector{T, S}) where {T, S} = S
 # e.g. x.pos[1] = 1.0u"cm"
 @inline Base.@constprop :aggressive function Base.getproperty(
         x::CollectionVector{T, S}, name::Symbol) where {T, S}
-    if haskey(S, name)
-        spec = getfield(S, name)
-        return fieldview(getfield(x, :data), spec[1], spec[2])
-    else
-        throw(ArgumentError("CollectionVector has no field '$name'. Available fields: $(keys(S))"))
-    end
+    spec = fieldspec(S, name)
+    return fieldview(getfield(x, :data), spec[1], spec[2])
 end
+
+# Helper to get the slot and field type of field `name`
+@inline Base.@constprop :aggressive function fieldspec(S::NamedTuple, name::Symbol)
+    haskey(S, name) ||
+        throw(ArgumentError("CollectionVector has no field '$name'. Available fields: $(keys(S))"))
+    return getfield(S, name)
+end
+
 # Scalar field: a value, the single element of the view over the field's slots.
-@inline fieldview(data, i::Int, ft) = fieldview(data, elementslots(data, i, ft), ft)[1]
-# Slots of the element that starts at slot `i`
-@inline elementslots(data, i::Int, ft) = i:(i + slotcount(eltype(data), ft) - 1)
-# Array field: a zero-copy view. A plain-number field is just a view. Anything else is the
-# same bytes reinterpreted as `Q` (which also handles multi-slot elements such as Complex).
-@inline function fieldview(data, r::UnitRange{Int}, ft)
+@inline fieldview(data, i::Int, ft) = slotview(data, i, ft)[1]
+# Array field: the view over the field's slots.
+@inline fieldview(data, r::UnitRange{Int}, ft) = slotview(data, r, ft)
+
+"""
+    slotview(x::CollectionVector, name::Symbol)
+    slotview(data, slot, ft)
+
+Writable view over the storage slots of field `name`, of element type `elementtype(T, ft)`.
+For an array field this is the array that `getproperty` returns. For a scalar field it is a
+one-element view, whose single element `getproperty` returns.
+
+The view lets code that writes into a field (`materialize!`, `setindex!`) treat scalar and
+array fields alike. The second form takes the field's slot (an `Int` or a `UnitRange`) and
+field type from the shape.
+"""
+@inline Base.@constprop :aggressive function slotview(
+        x::CollectionVector{T, S}, name::Symbol) where {T, S}
+    spec = fieldspec(S, name)
+    return slotview(getfield(x, :data), spec[1], spec[2])
+end
+@inline function slotview(data, i::Int, ft)
+    # `range` will almost always be 1 (unique slot), but can be 2 for complex scalars (they
+    # occupy two slots)
+    range = i:(i + slotcount(eltype(data), ft) - 1)
+    return slotview(data, range, ft)
+end
+# A plain-number field is just a view. Anything else is the same bytes reinterpreted as `Q`
+# (which also handles multi-slot elements such as Complex).
+@inline function slotview(data, r::UnitRange{Int}, ft)
     Q = elementtype(eltype(data), ft)
     v = view(data, r)
     Q === eltype(data) ? v : reinterpret(Q, v)
@@ -300,21 +327,17 @@ end
 
 @inline Base.@constprop :aggressive function Base.setproperty!(
         x::CollectionVector{T, S}, name::Symbol, val) where {T, S}
-    if haskey(S, name)
-        spec = getfield(S, name)
-        return setfield!(getfield(x, :data), spec[1], spec[2], val)
-    else
-        throw(ArgumentError("CollectionVector has no field '$name'. Available fields: $(keys(S))"))
-    end
+    spec = fieldspec(S, name)
+    return setfield!(getfield(x, :data), spec[1], spec[2], val)
 end
-# Assignment writes through the view that `fieldview` returns, whose `setindex!` converts the
+# Assignment writes through the view that `slotview` returns, whose `setindex!` converts the
 # value into the element type or throws.
 @inline function setfield!(data, i::Int, ft, val)
-    fieldview(data, elementslots(data, i, ft), ft)[1] = val
+    slotview(data, i, ft)[1] = val
     return val
 end
 @inline function setfield!(data, r::UnitRange{Int}, ft, val::AbstractArray)
-    fv = fieldview(data, r, ft)
+    fv = slotview(data, r, ft)
     length(val) == length(fv) || throw(DimensionMismatch(
         "Cannot assign $(length(val)) elements to an array field of $(length(fv)) elements"))
     fv .= val
@@ -324,11 +347,12 @@ end
     throw(ArgumentError("Cannot assign a scalar to array field spanning $(r); assign elementwise or with an array"))
 end
 
-# `x.pos .= rhs` lowers to `Base.dotgetproperty(x, :pos)`. The Base fallback does not
-# propagate the constant field name into `getproperty`, so the field view is not inferred
-# and the assignment dispatches at runtime.
+# `x.pos .= rhs` lowers to `Base.dotgetproperty(x, :pos)`. Returning the slot view makes
+# `.=` write into scalar fields as well as array fields. The Base fallback does not propagate
+# the constant field name, so the view would not be inferred and the assignment would
+# dispatch at runtime.
 @inline Base.@constprop :aggressive function Base.dotgetproperty(x::CollectionVector, name::Symbol)
-    getproperty(x, name)
+    slotview(x, name)
 end
 
 # For REPL tab completion of fields
