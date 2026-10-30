@@ -45,6 +45,42 @@ using HeterogeneousArrays: HeterogeneousArrays, rawdata, shapeof, attach
     @test m2.a ≈ [2.0, 4.0]u"m" && m2.t ≈ 6.0u"s" && m2.c ≈ [2.0 + 4.0im] && m2.n ≈ 8.0
 end
 
+@testset "CollectionVector broadcasting: first result sets the field" begin
+    # Out of place, the first result of each field sets the field type and the storage type.
+    # Later results are converted into them. When a conversion fails, an ArgumentError names
+    # the field and the cause. Units, complex versus real, and storage types all follow this
+    # one rule.
+    # Seconds into meters will error
+    seconds_above(p) = p > 3.5u"m" ? ustrip(p) * u"s" : p
+    msg = "Field 'a': broadcasting into elements of type Quantity{Float64, 𝐋"
+    @test_throws msg seconds_above.(CollectionVector(a = [3.0, 4.0]u"m"))
+    # Feets into meters or the opposite will convert
+    feet_above(p) = p > 3.5u"m" ? uconvert(u"ft", p) : p
+    @test feet_above.(CollectionVector(a = [3.0, 4.0]u"m")).a ≈ [3.0, 4.0]u"m"
+    ft = feet_above.(CollectionVector(a = [4.0, 3.0]u"m"))
+    @test shapeof(ft) == (a = (1:2, u"ft"),) && ft.a ≈ [4.0, 3.0]u"m"
+    # Complex into real fails
+    real_above(z) = abs(z) > 3.5 ? abs(z) : z
+    msg = "Field 'z': broadcasting into elements of type Float64 failed. Cause: InexactError"
+    @test_throws msg real_above.(CollectionVector(z = [3.0 + 4im, 1.0 + 1im]))
+    # Real into complex converts
+    zc = real_above.(CollectionVector(z = [1.0 + 1im, 3.0 + 4im]))
+    @test shapeof(zc) == (z = (1:4, HeterogeneousArrays.ComplexField()),)
+    @test zc.z == [1.0 + 1im, 5.0 + 0im]
+    # Storage type
+    # Float32 into Float64 and the opposite converts
+    half_precision_above(p) = p > 3.5 ? Float32(p) : p
+    @test rawdata(half_precision_above.(CollectionVector(a = [3.0, 4.0]))) isa Vector{Float64}
+    @test rawdata(half_precision_above.(CollectionVector(a = [4.0, 3.0]))) isa Vector{Float32}
+    # Bool and Float64 convert if possible...
+    is_big(p) = p > 3.5 ? true : p
+    @test rawdata(is_big.(CollectionVector(a = [3.0, 4.0]))) == [3.0, 1.0]
+    @test rawdata(is_big.(CollectionVector(a = [4.0, 1.0]))) == Bool[1, 1]
+    # ... and fail if not.
+    msg = "Field 'a': broadcasting into elements of type Bool failed. Cause: InexactError: Bool(3.0)"
+    @test_throws msg is_big.(CollectionVector(a = [4.0, 3.0]))
+end
+
 @testset "CollectionVector broadcasting: in place" begin
     function addmeter!(x)
         x .= x .+ 1u"m"
@@ -126,16 +162,11 @@ end
                                                                                           (1 +
                                                                                            0im)
     @test_throws Unitful.DimensionError x .+ 0im
-    # Later elements must convert into the field type set by the first element
-    seconds_above(p) = p > 3.5u"m" ? ustrip(p) * u"s" : p
-    l = CollectionVector(a = [3.0, 4.0]u"m")
-    @test_throws "Field 'a': broadcasting into elements of type Quantity{Float64, 𝐋" seconds_above.(l)
+    # In place, a result that does not convert into the destination field names the field
+    # and the cause. Earlier fields keep their new values
     @test_throws "Cause: DimensionError" x .= x .* 1.0u"s"
-    # Failing field get named in the error message. Earlier fields keep their new values
     p = CollectionVector(a = [1.0, 2.0]u"m", b = 3.0u"m")
     q = CollectionVector(a = [5.0, 6.0]u"m", b = 7.0u"s")
     @test_throws "Field 'b': broadcasting into elements of type Quantity{Float64, 𝐋" p .= q
     @test p.a == [5.0, 6.0]u"m" && p.b == 3.0u"m"
-    # TODO: add test that also change Tnew, e.g. Complex that turns into a Float64
-    # TODO: add test similar to seconds_above but that converts to ft
 end
