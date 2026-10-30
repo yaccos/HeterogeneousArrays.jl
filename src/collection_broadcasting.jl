@@ -86,65 +86,76 @@ function segmentlist(::Type{T}, specs::Tuple) where {T}
     return (segment, segmentlist(T, Base.tail(specs))...)
 end
 
+# Storage type and field type of one field of the result, as a pair `(R, ft)`, from the
+# per-field broadcast `bcf`. When inference gives a concrete element type `Q`, and the field
+# type of a `Q` is inferred as a singleton type (a unit, `Nothing`, ...), both come from `Q`
+# and no element is evaluated. Otherwise (e.g. a function whose result unit or realness
+# depends on the value) they come from the first element of the field's result.
+@inline function fieldresult(bcf, ::Val{name}, slot) where {name}
+    Q = Broadcast.combine_eltypes(bcf.f, bcf.args)
+    if isconcretetype(Q)
+        checkresult(name, Q)
+        FT = Base.promote_op(field_type, Q)
+        Base.issingletontype(FT) && return (rawtype(Q), FT.instance)
+    end
+    q = firstresult(bcf, Val(name), slot)
+    return (rawtype(typeof(q)), field_type(q))
+end
+
 # First element of the per-field broadcast `bcf`. A scalar field (`Int` slot) gives a
 # 0-dimensional broadcast, an array field (`UnitRange` slot) a 1D one.
 function firstresult(bcf, ::Val{name}, ::Int) where {name}
-    checkresult(name, Broadcast.materialize(bcf))
+    q = Broadcast.materialize(bcf)
+    checkresult(name, typeof(q))
+    return q
 end
 function firstresult(bcf, ::Val{name}, ::UnitRange{Int}) where {name}
     bci = Broadcast.instantiate(bcf)
-    return checkresult(name, bci[first(eachindex(bci))])
+    q = bci[first(eachindex(bci))]
+    checkresult(name, typeof(q))
+    return q
 end
-function checkresult(name, q)
-    Q = typeof(q)
+function checkresult(name, ::Type{Q}) where {Q}
     is_storable(Q) || throw(ArgumentError(
         "Field '$name': the broadcast produces elements of type $Q, which CollectionVector " *
         "does not support"))
-    return q
+    return nothing
 end
 
 # Storage type and shape of the result of broadcasting `bc`, whose CollectionVector inputs
-# have storage type `T` and shape `S`. Each field's type and storage type come from the first
-# element of its per-field broadcast. Field lengths come from `S`.
+# have storage type `T` and shape `S`. Each field's storage type and field type come from
+# `fieldresult`. Field lengths come from `S`.
 @inline function resultshape(::Type{T}, S::NamedTuple, bc) where {T}
     segs = segments(T, S)
-    qs = firstfieldresults(bc, segs, S, valnames(Val(keys(S))))
-    Tnew = storagetype(qs)
-    return Tnew,
-    NamedTuple{keys(S)}(resultspecs(Tnew, T, values(S), resultfieldtypes(qs), 0))
+    rs = fieldresults(bc, segs, S, valnames(Val(keys(S))))
+    Tnew = storagetype(rs)
+    return Tnew, NamedTuple{keys(S)}(resultspecs(Tnew, T, values(S), rs, 0))
 end
 
-firstfieldresults(bc, segs, S, ::Tuple{}) = ()
-@inline function firstfieldresults(bc, segs, S, names::Tuple)
-    q = firstfieldresult(bc, segs, S, first(names))
-    return (q, firstfieldresults(bc, segs, S, Base.tail(names))...)
+fieldresults(bc, segs, S, ::Tuple{}) = ()
+@inline function fieldresults(bc, segs, S, names::Tuple)
+    r = fieldresult(bc, segs, S, first(names))
+    return (r, fieldresults(bc, segs, S, Base.tail(names))...)
 end
-@inline function firstfieldresult(bc, segs, S, ::Val{name}) where {name}
+@inline function fieldresult(bc, segs, S, ::Val{name}) where {name}
     bcf = unpack_broadcast(bc, Val(name), getfield(segs, name))
-    return firstresult(bcf, Val(name), getfield(S, name)[1])
+    return fieldresult(bcf, Val(name), getfield(S, name)[1])
 end
 
-# Promotion of the storage types of the values `qs`
+# Promotion of the storage types in the field results `rs`
 storagetype(::Tuple{}) = Union{}
-function storagetype(qs::Tuple)
-    promote_type(rawtype(typeof(first(qs))), storagetype(Base.tail(qs)))
-end
+storagetype(rs::Tuple) = promote_type(first(rs)[1], storagetype(Base.tail(rs)))
 
-# Field types of the values `qs`. They are singletons (a unit, `nothing`, ...), so every
-# argument of `resultspecs` is a compile-time constant and inference knows the result shape.
-# With `qs` itself as argument, inference loses the shape from about ten fields on.
-resultfieldtypes(::Tuple{}) = ()
-resultfieldtypes(qs::Tuple) = (field_type(first(qs)), resultfieldtypes(Base.tail(qs))...)
-
-# Slot and field type of each field of the result, whose field types are `fts`
+# Slot and field type of each field of the result, from the input specs and the field
+# results `rs`
 resultspecs(::Type, ::Type, ::Tuple{}, ::Tuple{}, offset) = ()
 function resultspecs(
-        ::Type{Tnew}, ::Type{T}, specs::Tuple, fts::Tuple, offset) where {Tnew, T}
+        ::Type{Tnew}, ::Type{T}, specs::Tuple, rs::Tuple, offset) where {Tnew, T}
     slot, ft = first(specs)
-    ftnew = first(fts)
+    ftnew = first(rs)[2]
     n = slotcount(Tnew, ftnew) * fieldlength(T, slot, ft)
     spec = (resultslot(slot, offset, n), ftnew)
-    return (spec, resultspecs(Tnew, T, Base.tail(specs), Base.tail(fts), offset + n)...)
+    return (spec, resultspecs(Tnew, T, Base.tail(specs), Base.tail(rs), offset + n)...)
 end
 fieldlength(::Type, ::Int, ft) = 1
 fieldlength(::Type{T}, r::UnitRange{Int}, ft) where {T} = length(r) ÷ slotcount(T, ft)
@@ -199,8 +210,10 @@ field type and later elements are converted into it. An `ArgumentError` naming t
 thrown when a later element does not convert, or when a result element has a type that
 `CollectionVector` cannot store.
 
-The first element of each field is computed twice: once to determine the field type and once
-when the result is written.
+The field types are determined without evaluating the function when inference gives a
+concrete result type for a field, as for `x .* x` or `ustrip.(x)`. When it does not, e.g. for a
+function whose result unit depends on the value, the first element of that field is computed
+twice: once to determine the field type and once when the result is written.
 """
 function Base.copy(bc::Broadcast.Broadcasted{CollectionVectorStyle{Names}}) where {Names}
     cv = find_container(bc)
@@ -305,7 +318,8 @@ as a complex field, throws an `ArgumentError` naming the field.
 `dest` against the length of the `CollectionVector` arguments, so the result must have as
 many slots as the input. Otherwise a `DimensionMismatch` is thrown.
 
-As for `copy`, the first element of each field is computed twice.
+As for `copy`, the first element of a field is computed twice when inference does not give a
+concrete result type for it.
 """
 function Base.copyto!(dest::AbstractVector,
         bc::Broadcast.Broadcasted{CollectionVectorStyle{Names}}) where {Names}

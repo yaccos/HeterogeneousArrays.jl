@@ -79,6 +79,18 @@ end
     # ... and fail if not.
     msg = "Field 'a': broadcasting into elements of type Bool failed. Cause: InexactError: Bool(3.0)"
     @test_throws msg is_big.(CollectionVector(a = [4.0, 3.0]))
+    # The function is evaluated once per element when inference gives its result type, and
+    # once more for the first element of each field when it does not
+    l = CollectionVector(a = [1.0, 2.0]u"m", b = 3.0u"m")
+    ncalls = Ref(0)
+    counted(q) = (ncalls[] += 1; 2q)
+    counted.(l)
+    @test ncalls[] == 3
+    unstable(q) = q > 1.5u"m" ? uconvert(u"cm", q) : q
+    counted_unstable(q) = (ncalls[] += 1; unstable(q))
+    ncalls[] = 0
+    @test shapeof(counted_unstable.(l)) == (a = (1:2, u"m"), b = (3, u"cm"))
+    @test ncalls[] == 5
 end
 
 @testset "CollectionVector broadcasting: in place" begin
