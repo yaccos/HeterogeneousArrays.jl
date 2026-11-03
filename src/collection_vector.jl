@@ -295,7 +295,7 @@ end
 end
 
 # Scalar field: a value, the single element of the view over the field's slots.
-@inline fieldview(data, i::Int, ft) = slotview(data, i, ft)[1]
+@inline fieldview(data, i::Int, ft) = slotview(data, i, ft)[]
 # Array field: the view over the field's slots.
 @inline fieldview(data, r::UnitRange{Int}, ft) = slotview(data, r, ft)
 
@@ -337,7 +337,7 @@ end
 # Assignment writes through the reinterpreted view that `slotview` returns. Indexing into
 # that view will convert the value to the element type or throw.
 @inline function setfield!(data, i::Int, ft, val)
-    slotview(data, i, ft)[1] = val
+    slotview(data, i, ft)[] = val
     return val
 end
 @inline function setfield!(data, r::UnitRange{Int}, ft, val::AbstractArray)
