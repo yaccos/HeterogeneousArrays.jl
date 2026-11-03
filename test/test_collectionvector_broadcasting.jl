@@ -81,7 +81,7 @@ end
     @test_throws msg is_big.(CollectionVector(a = [4.0, 3.0]))
     # The function is evaluated once per element when inference gives its result type, and
     # once more for the first element of each field when it does not
-    l = CollectionVector(a = [1.0, 2.0]u"m", b = 3.0u"m")
+    l = CollectionVector(a = [1.0, 2.0]u"m", b = 3.0u"s")
     ncalls = Ref(0)
     counted(q) = (ncalls[] += 1; 2q)
     counted.(l)
