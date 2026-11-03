@@ -76,11 +76,11 @@ end
 # and shape `S`, which partitions ordinary 1D arrays in a broadcast: an `Int` for a scalar
 # field, a `UnitRange` for an array field, and `nothing` for a field whose elements occupy
 # several slots each.
-function segments(::Type{T}, S::NamedTuple) where {T}
+@inline function segments(::Type{T}, S::NamedTuple) where {T}
     NamedTuple{keys(S)}(segmentlist(T, values(S)))
 end
-segmentlist(::Type, ::Tuple{}) = ()
-function segmentlist(::Type{T}, specs::Tuple) where {T}
+@inline segmentlist(::Type, ::Tuple{}) = ()
+@inline function segmentlist(::Type{T}, specs::Tuple) where {T}
     slot, ft = first(specs)
     segment = slotcount(T, ft) == 1 ? slot .- 1 : nothing
     return (segment, segmentlist(T, Base.tail(specs))...)
@@ -104,13 +104,13 @@ end
 
 # First element of the per-field broadcast `bcf`, which is 0-dimensional for a scalar field
 # and 1D for an array field.
-function firstresult(bcf, ::Val{name}) where {name}
+@inline function firstresult(bcf, ::Val{name}) where {name}
     bci = Broadcast.instantiate(bcf)
     q = bci[first(eachindex(bci))]
     checkresult(name, typeof(q))
     return q
 end
-function checkresult(name, ::Type{Q}) where {Q}
+@inline function checkresult(name, ::Type{Q}) where {Q}
     is_storable(Q) || throw(ArgumentError(
         "Field '$name': the broadcast produces elements of type $Q, which CollectionVector " *
         "does not support"))
@@ -127,7 +127,7 @@ end
     return Tnew, NamedTuple{keys(S)}(resultspecs(Tnew, T, values(S), rs, 0))
 end
 
-fieldresults(bc, segs, S, ::Tuple{}) = ()
+@inline fieldresults(bc, segs, S, ::Tuple{}) = ()
 @inline function fieldresults(bc, segs, S, names::Tuple)
     r = fieldresult(bc, segs, S, first(names))
     return (r, fieldresults(bc, segs, S, Base.tail(names))...)
@@ -138,13 +138,13 @@ end
 end
 
 # Promotion of the storage types in the field results `rs`
-storagetype(::Tuple{}) = Union{}
-storagetype(rs::Tuple) = promote_type(first(rs)[1], storagetype(Base.tail(rs)))
+@inline storagetype(::Tuple{}) = Union{}
+@inline storagetype(rs::Tuple) = promote_type(first(rs)[1], storagetype(Base.tail(rs)))
 
 # Slot and field type of each field of the result, from the input specs and the field
 # results `rs`
-resultspecs(::Type, ::Type, ::Tuple{}, ::Tuple{}, offset) = ()
-function resultspecs(
+@inline resultspecs(::Type, ::Type, ::Tuple{}, ::Tuple{}, offset) = ()
+@inline function resultspecs(
         ::Type{Tnew}, ::Type{T}, specs::Tuple, rs::Tuple, offset) where {Tnew, T}
     slot, ft = first(specs)
     ftnew = first(rs)[2]
@@ -152,25 +152,27 @@ function resultspecs(
     spec = (resultslot(slot, offset, n), ftnew)
     return (spec, resultspecs(Tnew, T, Base.tail(specs), Base.tail(rs), offset + n)...)
 end
-fieldlength(::Type, ::Int, ft) = 1
-fieldlength(::Type{T}, r::UnitRange{Int}, ft) where {T} = length(r) ÷ slotcount(T, ft)
-resultslot(::Int, offset, n) = offset + 1
-resultslot(::UnitRange{Int}, offset, n) = (offset + 1):(offset + n)
+@inline fieldlength(::Type, ::Int, ft) = 1
+@inline function fieldlength(::Type{T}, r::UnitRange{Int}, ft) where {T}
+    length(r) ÷ slotcount(T, ft)
+end
+@inline resultslot(::Int, offset, n) = offset + 1
+@inline resultslot(::UnitRange{Int}, offset, n) = (offset + 1):(offset + n)
 
 # Replace every array argument of the broadcast tree that may share memory with `dest` by a
 # copy, except `dest` itself. Fields are written one after another, so an argument that
 # aliases `dest` could otherwise be read after another field has already overwritten it.
-function unaliasargs(dest, bc::Broadcast.Broadcasted{Style}) where {Style}
+@inline function unaliasargs(dest, bc::Broadcast.Broadcasted{Style}) where {Style}
     Broadcast.Broadcasted{Style}(bc.f, map(arg -> unaliasargs(dest, arg), bc.args), bc.axes)
 end
-unaliasargs(dest, x) = dest === x ? x : Base.unalias(dest, x)
+@inline unaliasargs(dest, x) = dest === x ? x : Base.unalias(dest, x)
 
 Base.unaliascopy(x::CollectionVector) = attach(shapeof(x), Base.unaliascopy(rawdata(x)))
 
 # Segments for partitioning ordinary arrays come from a CollectionVector in the broadcast
 # tree, or from the destination when the tree holds none (e.g. `x .= 0.0u"m"`).
-segmentsource(cv::CollectionVector, dest) = cv
-segmentsource(::Any, dest) = dest
+@inline segmentsource(cv::CollectionVector, dest) = cv
+@inline segmentsource(::Any, dest) = dest
 
 """
     Broadcast.materialize!(::CollectionVectorStyle, dest, bc::Broadcasted)
@@ -210,7 +212,8 @@ concrete result type for a field, as for `x .* x` or `ustrip.(x)`. When it does 
 function whose result unit depends on the value, the first element of that field is computed
 twice: once to determine the field type and once when the result is written.
 """
-function Base.copy(bc::Broadcast.Broadcasted{CollectionVectorStyle{Names}}) where {Names}
+@inline Base.@constprop :aggressive function Base.copy(
+        bc::Broadcast.Broadcasted{CollectionVectorStyle{Names}}) where {Names}
     cv = find_container(bc)
     Tnew, Snew = resultshape(eltype(rawdata(cv)), shapeof(cv), bc)
     dest = attach(Snew, similar(rawdata(cv), Tnew, shape_length(Tnew, Snew)))
@@ -254,7 +257,7 @@ function Base.copyto!(dest::CollectionVector{<:Any, S},
     return dest
 end
 
-broadcastfields!(dest, bc, segs, ::Tuple{}) = nothing
+@inline broadcastfields!(dest, bc, segs, ::Tuple{}) = nothing
 @inline function broadcastfields!(dest, bc, segs, names::Tuple)
     broadcastfield!(dest, bc, segs, first(names))
     return broadcastfields!(dest, bc, segs, Base.tail(names))
@@ -308,7 +311,7 @@ many slots as the input. Otherwise a `DimensionMismatch` is thrown.
 As for `copy`, the first element of a field is computed twice when inference does not give a
 concrete result type for it.
 """
-function Base.copyto!(dest::AbstractVector,
+@inline Base.@constprop :aggressive function Base.copyto!(dest::AbstractVector,
         bc::Broadcast.Broadcasted{CollectionVectorStyle{Names}}) where {Names}
     cv = find_container(bc)
     T, S = eltype(rawdata(cv)), shapeof(cv)
@@ -322,7 +325,7 @@ function Base.copyto!(dest::AbstractVector,
     return dest
 end
 
-storesegments!(dest, bc, segs, destsegs, ::Tuple{}) = nothing
+@inline storesegments!(dest, bc, segs, destsegs, ::Tuple{}) = nothing
 @inline function storesegments!(dest, bc, segs, destsegs, names::Tuple)
     storesegment!(dest, bc, segs, destsegs, first(names))
     return storesegments!(dest, bc, segs, destsegs, Base.tail(names))

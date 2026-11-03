@@ -70,32 +70,32 @@ end
 # A value `q` is stored as `convert(elementtype(T, ft), q)`: this must succeed for every value
 # that belongs in the field and throw for any other.
 
-is_storable(::Type) = false
+@inline is_storable(::Type) = false
 function field_type end
 function elementtype end
 
 # Plain real numbers: no unit. Field type set to `nothing`.
-is_storable(::Type{<:Real}) = true
-rawtype(::Type{Q}) where {Q <: Real} = Q
-field_type(::Real) = nothing
-elementtype(::Type{T}, ::Nothing) where {T} = T
+@inline is_storable(::Type{<:Real}) = true
+@inline rawtype(::Type{Q}) where {Q <: Real} = Q
+@inline field_type(::Real) = nothing
+@inline elementtype(::Type{T}, ::Nothing) where {T} = T
 
 # Unitful quantities: the field type is the unit.
-is_storable(::Type{<:Unitful.AbstractQuantity{<:Real}}) = true
-rawtype(::Type{Q}) where {Q <: Unitful.AbstractQuantity} = Unitful.numtype(Q)
-field_type(q::Unitful.AbstractQuantity) = unit(q)
-function elementtype(::Type{T}, u::U) where {T, U <: Unitful.Units}
+@inline is_storable(::Type{<:Unitful.AbstractQuantity{<:Real}}) = true
+@inline rawtype(::Type{Q}) where {Q <: Unitful.AbstractQuantity} = Unitful.numtype(Q)
+@inline field_type(q::Unitful.AbstractQuantity) = unit(q)
+@inline function elementtype(::Type{T}, u::U) where {T, U <: Unitful.Units}
     Unitful.Quantity{T, Unitful.dimension(u), U}
 end
 
 # Complex numbers: two real slots per element, so the storage stays real (solvers and
 # ForwardDiff only ever see reals; the RHS sees `Complex{T}` through the reinterpret view).
 # TODO: support complex *quantities* (`[1+2im]u"m"`) (we require Unitful.AbstractQuantity{<:Real} above)
-is_storable(::Type{<:Complex{<:Real}}) = true
-rawtype(::Type{Complex{T}}) where {T} = T # storage eltype is the real part type
+@inline is_storable(::Type{<:Complex{<:Real}}) = true
+@inline rawtype(::Type{Complex{T}}) where {T} = T # storage eltype is the real part type
 struct ComplexField end
-field_type(::Complex) = ComplexField()    # custom field type
-elementtype(::Type{T}, ::ComplexField) where {T} = Complex{T}
+@inline field_type(::Complex) = ComplexField()    # custom field type
+@inline elementtype(::Type{T}, ::ComplexField) where {T} = Complex{T}
 
 # Constructor helpers built on the API
 firstelem(v::AbstractArray) = first(v)
@@ -244,8 +244,8 @@ end
 
 Access the raw (unitless) storage of a `CollectionVector` (identity on other vectors).
 """
-rawdata(x::CollectionVector) = getfield(x, :data)
-rawdata(x::AbstractVector) = x
+@inline rawdata(x::CollectionVector) = getfield(x, :data)
+@inline rawdata(x::AbstractVector) = x
 
 Unitful.ustrip(x::CollectionVector) = rawdata(x)
 
@@ -261,14 +261,14 @@ The shape parameter of an existing CollectionVector can be accessed with the
 end
 # Number of storage slots the shape `S` spans. Done as a recursion over the spec tuple to
 # keep things efficient (no runtime dispatch) with more than 32 fields.
-shape_length(::Type{T}, S::NamedTuple) where {T} = shape_length(T, values(S))
-function shape_length(::Type{T}, specs::Tuple) where {T}
+@inline shape_length(::Type{T}, S::NamedTuple) where {T} = shape_length(T, values(S))
+@inline function shape_length(::Type{T}, specs::Tuple) where {T}
     slot, ft = first(specs)
     return spec_len(T, slot, ft) + shape_length(T, Base.tail(specs))
 end
-shape_length(::Type, ::Tuple{}) = 0
-spec_len(::Type, r::UnitRange{Int}, ft) = length(r)
-spec_len(::Type{T}, ::Int, ft) where {T} = slotcount(T, ft)
+@inline shape_length(::Type, ::Tuple{}) = 0
+@inline spec_len(::Type, r::UnitRange{Int}, ft) = length(r)
+@inline spec_len(::Type{T}, ::Int, ft) where {T} = slotcount(T, ft)
 
 """
     shapeof(x::CollectionVector) -> NamedTuple
@@ -276,7 +276,7 @@ spec_len(::Type{T}, ::Int, ft) where {T} = slotcount(T, ft)
 The compile-time shape of a `CollectionVector`: a NamedTuple mapping field names to
 `(slot, field type)`.
 """
-shapeof(::CollectionVector{T, S}) where {T, S} = S
+@inline shapeof(::CollectionVector{T, S}) where {T, S} = S
 
 ## Tooling to access and modidy property/fields of a CollectionVector
 # e.g. x.pos = [3.0, 4.0]u"cm"
@@ -383,7 +383,7 @@ materialize_field(data, r::UnitRange{Int}, ft) = collect(fieldview(data, r, ft))
 # each possibilities. But if there are more units than that, it will widen the return type to
 # a general `Quantity{T}`, which can then cause runtime dispatch if used in other functions.
 # This is not a problem when indexing on fields.
-Base.size(x::CollectionVector) = size(getfield(x, :data))
+@inline Base.size(x::CollectionVector) = size(getfield(x, :data))
 
 @inline function Base.getindex(x::CollectionVector{T, S}, i::Int) where {T, S}
     data = getfield(x, :data)
@@ -454,7 +454,9 @@ end
 # TODO: even if they stay type-stable, tuple recursions with more than 32 fields start to
 # allocate and slow down. Potential solutions can be @generated functions or
 # the UnrolledUtilities.jl package
-valnames(::Val{names}) where {names} = ntuple(i -> Val(names[i]), Val(length(names)))
+@inline function valnames(::Val{names}) where {names}
+    ntuple(i -> Val(names[i]), Val(length(names)))
+end
 
 # Check that fields with the same names are of the same kind (scalar/array) and have the
 # same length.
@@ -469,7 +471,7 @@ end
     length(d) == length(s) || throw(layoutmismatch("field lengths", S1, S2))
     return nothing
 end
-checkfieldlayouts(::Val, ::Val, ::Tuple{}) = nothing
+@inline checkfieldlayouts(::Val, ::Val, ::Tuple{}) = nothing
 
 # copy field values field by field using the `setproperty!` interface
 @inline function copyfields!(dest, src, names::Tuple)
@@ -480,7 +482,7 @@ end
     setproperty!(dest, name, getproperty(src, name))
     return nothing
 end
-copyfields!(dest, src, ::Tuple{}) = dest
+@inline copyfields!(dest, src, ::Tuple{}) = dest
 
 # Redirect copy! to copyto!, to also get the shape error messages and unit conversion rather
 # than the less informative errors about resize!
@@ -508,7 +510,7 @@ end
     (a isa AbstractArray) == (b isa AbstractArray) || return false
     return isapprox(a, b; kw...)
 end
-fieldsapprox(x, y, ::Tuple{}, kw) = true
+@inline fieldsapprox(x, y, ::Tuple{}, kw) = true
 
 ## Display
 function Base.summary(io::IO, x::CollectionVector{T, S}) where {T, S}
