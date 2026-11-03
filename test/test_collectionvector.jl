@@ -108,7 +108,8 @@ end
     assignscalar!(x, q) = (x.θ .= q; nothing)
     assignscalar!(x, 0.5u"rad")
     @test x.θ === 0.5u"rad"
-    @test (@allocated assignscalar!(x, 0.2u"rad")) == 0
+    q = 0.2u"rad"
+    @test (@allocated assignscalar!(x, q)) == 0
 end
 
 @testset "CollectionVector: flat indexing" begin
