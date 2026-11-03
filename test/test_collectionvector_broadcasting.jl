@@ -86,6 +86,7 @@ end
     counted(q) = (ncalls[] += 1; 2q)
     counted.(l)
     @test ncalls[] == 3
+    l = CollectionVector(a = [1.0, 2.0]u"m", b = 3.0u"m")
     unstable(q) = q > 1.5u"m" ? uconvert(u"cm", q) : q
     counted_unstable(q) = (ncalls[] += 1; unstable(q))
     ncalls[] = 0
