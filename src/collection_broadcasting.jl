@@ -347,8 +347,9 @@ Fields of different lengths throw a `DimensionMismatch` rather than being trunca
 shortest argument as in Base's `map`. Different field names throw an `ArgumentError`. A call
 with a plain vector among the arguments does not reach this method and works slot by slot.
 """
-Base.map(f, x::CollectionVector, ys::CollectionVector...) =
+function Base.map(f, x::CollectionVector, ys::CollectionVector...)
     Broadcast.materialize(Broadcast.broadcasted(f, x, ys...))
+end
 
 """
     map!(f, dest, x::CollectionVector, ys::CollectionVector...) -> dest
@@ -366,7 +367,9 @@ otherwise a `DimensionMismatch` is thrown rather than stopping at the shortest a
 Base's `map!` does. A function that changes the number of slots per element, such as `abs`
 on a complex field, therefore works with `map` but not with `map!`.
 """
-Base.map!(f, dest::CollectionVector, x::CollectionVector, ys::CollectionVector...) =
+function Base.map!(f, dest::CollectionVector, x::CollectionVector, ys::CollectionVector...)
     Broadcast.materialize!(dest, Broadcast.broadcasted(f, x, ys...))
-Base.map!(f, dest::AbstractVector, x::CollectionVector, ys::CollectionVector...) =
+end
+function Base.map!(f, dest::AbstractVector, x::CollectionVector, ys::CollectionVector...)
     Broadcast.materialize!(dest, Broadcast.broadcasted(f, x, ys...))
+end

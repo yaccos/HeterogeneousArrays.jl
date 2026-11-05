@@ -59,12 +59,14 @@ at the first field that decides the result. `f` must return a `Bool`.
 Only `dims = :` is supported. Any other `dims` throws an `ArgumentError`.
 `any(x)` and `all(x)` without a predicate are Base's methods, which test the storage slots.
 """
-function Base.any(f::F, x::CollectionVector{T, S}; dims::D = :) where {F <: Function, T, S, D}
+function Base.any(f::F, x::CollectionVector{T, S}; dims::D = :) where {
+        F <: Function, T, S, D}
     dims === (:) || throw(unsupported_dims(dims))
     return anyfields(f, x, valnames(Val(keys(S))))
 end
 
-function Base.all(f::F, x::CollectionVector{T, S}; dims::D = :) where {F <: Function, T, S, D}
+function Base.all(f::F, x::CollectionVector{T, S}; dims::D = :) where {
+        F <: Function, T, S, D}
     dims === (:) || throw(unsupported_dims(dims))
     return allfields(f, x, valnames(Val(keys(S))))
 end
