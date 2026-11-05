@@ -335,3 +335,41 @@ end
     Broadcast.materialize!(segmentview(dest, getfield(destsegs, name), name), bcf)
     return nothing
 end
+
+"""
+    map(f, x::CollectionVector, ys::CollectionVector...) -> CollectionVector
+
+Apply `f` to the elements of each field of `x` (and the matching elements of `ys`) and
+return a new `CollectionVector` with the same field names and field lengths. The result is
+the field-wise broadcast `f.(x, ys...)`.
+
+Fields of different lengths throw a `DimensionMismatch` rather than being truncated to the
+shortest argument as in Base's `map`. Different field names throw an `ArgumentError`. A call
+with a plain vector among the arguments does not reach this method and works slot by slot.
+"""
+function Base.map(f, x::CollectionVector, ys::CollectionVector...)
+    Broadcast.materialize(Broadcast.broadcasted(f, x, ys...))
+end
+
+"""
+    map!(f, dest, x::CollectionVector, ys::CollectionVector...) -> dest
+
+Store the field-wise result of `map(f, x, ys...)` in `dest`, as `dest .= f.(x, ys...)`
+does.
+
+For a `CollectionVector` `dest`, each field's results are converted into the element type
+of that field of `dest`. For a plain vector `dest`, the results are laid out like the
+storage of the out-of-place result, so `dest` needs one element per storage slot of the
+result.
+
+As with `.=`, `dest` must have as many storage slots as the `CollectionVector` arguments,
+otherwise a `DimensionMismatch` is thrown rather than stopping at the shortest argument as
+Base's `map!` does. A function that changes the number of slots per element, such as `abs`
+on a complex field, therefore works with `map` but not with `map!`.
+"""
+function Base.map!(f, dest::CollectionVector, x::CollectionVector, ys::CollectionVector...)
+    Broadcast.materialize!(dest, Broadcast.broadcasted(f, x, ys...))
+end
+function Base.map!(f, dest::AbstractVector, x::CollectionVector, ys::CollectionVector...)
+    Broadcast.materialize!(dest, Broadcast.broadcasted(f, x, ys...))
+end
