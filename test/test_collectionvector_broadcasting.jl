@@ -43,6 +43,24 @@ using HeterogeneousArrays: HeterogeneousArrays, rawdata, shapeof, attach
     m = CollectionVector(a = [1.0, 2.0]u"m", t = 3.0u"s", c = [1.0 + 2im], n = 4)
     m2 = @inferred((m -> m .* 2)(m))
     @test m2.a ≈ [2.0, 4.0]u"m" && m2.t ≈ 6.0u"s" && m2.c ≈ [2.0 + 4.0im] && m2.n ≈ 8.0
+
+    # Units and storage types promote across CollectionVectors with the same fields
+    mixed = CollectionVector(a = [1.0, 2.0]u"m", b = 1.0u"s") .+
+            CollectionVector(a = Float32[100, 200]u"cm", b = 500.0f0u"ms")
+    @test eltype(rawdata(mixed)) == Float64
+    @test mixed.a ≈ [2.0, 4.0]u"m" && mixed.b ≈ 1.5u"s"
+
+    # An out-of-place broadcast must allocate the storage vector of its result, and nothing
+    # else: extra bytes would mean per-field temporaries, boxed values from a type
+    # instability, or runtime dispatch. The reference is `similar(rawdata(x))`, which
+    # allocates exactly one storage vector of the same type and length (here the result
+    # has the storage type and length of `x`). Both are called once first, so that
+    # `@allocated` does not count the memory used by compilation. `<=` rather than `==`
+    # keeps the test independent of how a Julia version accounts for array allocations.
+    twice(x) = 2 .* x
+    twice(x)
+    similar(rawdata(x))
+    @test (@allocated twice(x)) <= (@allocated similar(rawdata(x)))
 end
 
 @testset "CollectionVector broadcasting: first result sets the field" begin
@@ -137,6 +155,12 @@ end
     # Unit-free values do not convert into quantities
     x = CollectionVector(a = [0.0, 0.0]u"m", b = 0.0u"m")
     @test_throws "Field 'a': broadcasting into elements of type" x .= v
+    # Refs and 0-dimensional arrays are passed unchanged, and ordinary arrays inside a
+    # nested broadcast are split like the others
+    x = CollectionVector(a = [1.0, 2.0]u"m", b = 3.0u"m")
+    @test rawdata(x .+ Ref(1.0u"m")) == [2.0, 3.0, 4.0]
+    @test rawdata(x .* fill(2.0)) == [2.0, 4.0, 6.0]
+    @test rawdata(x .+ (v .* 2) .* 1.0u"m") == [3.0, 6.0, 9.0]
 end
 
 @testset "CollectionVector broadcasting: plain destination" begin
@@ -154,6 +178,49 @@ end
     @test_throws "Destination has length 3, the broadcast result has 6 storage slots" (zeros(3) .= r .+
                                                                                                    0im)
     @test_throws "Cannot broadcast field 'c' with an ordinary array" (zeros(3) .= z .* 1)
+    # The destination may be the storage of an input: arguments that alias it are read in
+    # full before any field is written (otherwise `b` would read the new value of `a[1]`)
+    w = CollectionVector(a = [1.0, 2.0], b = 3.0)
+    r = rawdata(w)
+    r .= w .+ view(r, 3:-1:1)
+    @test r == [4.0, 4.0, 4.0]
+end
+
+@testset "CollectionVector broadcasting: ForwardDiff" begin
+    # Broadcasting over a CollectionVector with Dual storage, as inside ForwardDiff.jacobian,
+    # out of place and in place
+    S = shapeof(CollectionVector(a = [1.0, 2.0]u"m", b = 3.0u"s"))
+    square(v) = (x = attach(S, v); rawdata(ustrip.(x .* x)))
+    @test ForwardDiff.jacobian(square, [1.0, 2.0, 3.0]) ≈ [2.0 0 0; 0 4.0 0; 0 0 6.0]
+    function triple(v)
+        x = attach(S, v)
+        y = similar(x)
+        y .= 3 .* x
+        return rawdata(y)
+    end
+    @test ForwardDiff.jacobian(triple, [1.0, 2.0, 3.0]) ≈ [3.0 0 0; 0 3.0 0; 0 0 3.0]
+end
+
+@testset "CollectionVector broadcasting: more than 32 fields" begin
+    # The loops over the fields of a CollectionVector recurse over tuples (of field names
+    # and of shape specs). Past 32 elements the compiler stops fully unrolling and
+    # inferring such recursions, which shows up as allocations and lost type stability
+    # (see the TODO at `valnames` in src/collection_vector.jl). 33 fields is the smallest
+    # vector past that limit.
+    names = Tuple(Symbol.(:f, 1:33))
+    x = CollectionVector(NamedTuple{names}(Tuple(1.0:33.0) .* u"m"))
+    # In place: no allocation at all. Called once first so that compilation is not counted.
+    addmeter!(x) = (x .= x .+ 1.0u"m"; nothing)
+    addmeter!(x)
+    @test rawdata(x) == 2.0:34.0
+    @test (@allocated addmeter!(x)) == 0
+    # Out of place: the result type is inferred, and only the storage vector of the result
+    # is allocated, measured against `similar(rawdata(x))` as in the "out of place"
+    # testset (the `@inferred` call also serves as the warm-up for `twice`)
+    twice(x) = 2 .* x
+    @test rawdata(@inferred(twice(x))) == 2 .* rawdata(x)
+    similar(rawdata(x))
+    @test (@allocated twice(x)) <= (@allocated similar(rawdata(x)))
 end
 
 @testset "CollectionVector broadcasting: rejected inputs" begin
@@ -164,6 +231,11 @@ end
     bc = Broadcast.instantiate(Broadcast.broadcasted(+, x, 1))
     @test_throws "Cannot broadcast into a CollectionVector with fields (:q,) from a broadcast over fields (:θ, :pos)" copyto!(
         q, bc)
+    # Fields with different lengths are reported when the broadcast is evaluated, even when
+    # the total lengths match
+    msg = "Field 'b': broadcasting into elements of type Float64 failed. Cause: DimensionMismatch"
+    @test_throws msg CollectionVector(a = [1.0, 2.0], b = [3.0]) .+
+                     CollectionVector(a = [1.0], b = [2.0, 3.0])
     hv = HeterogeneousVector(θ = 0.1u"rad", pos = [1.0, 2.0]u"m")
     msg = "Cannot broadcast a CollectionVector (fields (:θ, :pos)) together with a HeterogeneousVector (fields (:θ, :pos))"
     @test_throws msg x .+ hv

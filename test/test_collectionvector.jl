@@ -374,6 +374,14 @@ end
     @test @inferred(isapprox(x, y)) isa Bool
 end
 
+@testset "CollectionVector: equality" begin
+    x = CollectionVector(a = [1.0, 2.0]u"m", b = 3.0u"s")
+    @test x == copy(x)
+    @test x == CollectionVector(a = [100.0, 200.0]u"cm", b = 3000.0u"ms")  # after conversion
+    @test x != CollectionVector(a = [1.0, 2.5]u"m", b = 3.0u"s")
+    @test @inferred(x == x) isa Bool
+end
+
 @testset "CollectionVector: aliasing" begin
     # The vector reports the memory of its storage, so a field view is known to alias it
     x = CollectionVector(a = [1.0, 2.0, 3.0]u"m", b = 4.0u"m")
