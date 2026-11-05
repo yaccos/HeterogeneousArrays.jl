@@ -191,10 +191,11 @@ end
 
 @testset "CollectionVector broadcasting: more than 32 fields" begin
     # The loops over the fields of a CollectionVector recurse over tuples (of field names
-    # and of shape specs). Past 32 elements the compiler stops fully unrolling and
-    # inferring such recursions, which shows up as allocations and lost type stability
-    # (see the TODO at `valnames` in src/collection_vector.jl). 33 fields is the smallest
-    # vector past that limit.
+    # and of shape specs). Inference keeps such recursions concrete regardless of the
+    # number of fields: the 32-element limit in Julia's compiler applies to splatting a
+    # tuple into a call (`f(t...)`), which these loops avoid by passing `first` and
+    # `Base.tail` down. This testset pins that down past 32 fields: no allocation in
+    # place, an inferred result out of place.
     names = Tuple(Symbol.(:f, 1:33))
     x = CollectionVector(NamedTuple{names}(Tuple(1.0:33.0) .* u"m"))
     # In place: no allocation at all. Called once first so that compilation is not counted.
