@@ -4,7 +4,7 @@ module HeterogeneousArrays
 
 A Julia package for efficiently storing and operating on heterogeneous data with type-stable broadcasting.
 
-The primary type is [`HeterogeneousVector`](@ref), which allows combining different concrete types 
+The primary type is [`HeterogeneousVector`](@ref), which allows combining different concrete types
 (including quantities with units) into a single broadcastable vector.
 
 # Features
@@ -37,7 +37,12 @@ include("types.jl")
 include("indexing.jl")
 include("reductions.jl")
 include("allocation.jl")
+include("collection_vector.jl")
 include("broadcasting.jl")
+include("collection_broadcasting.jl")
+include("collection_reductions.jl")
 include("printing.jl")
+
+export CollectionVector
 
 end # module

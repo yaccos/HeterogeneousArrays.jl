@@ -11,14 +11,23 @@ involved in a broadcast operation, they must have compatible field names.
 
 # Broadcast Rules
 
-1. **Single HeterogeneousVector with other types**: The broadcast result preserves the
-   HeterogeneousVector structure and field names.
+The broadcast is evaluated field by field, and the result preserves the HeterogeneousVector
+structure and field names. The other arguments are handled as follows:
 
-2. **Multiple HeterogeneousVectors with matching field names**: All vectors must have identical
-   field names; operations proceed field-by-field in parallel.
+1. **HeterogeneousVectors with matching field names**: each one is replaced by the field
+   being computed.
 
-3. **Multiple HeterogeneousVectors with different field names**: Throws an error to prevent
-   silent data corruption.
+2. **HeterogeneousVectors with different field names**: throw an error to prevent silent
+   data corruption.
+
+3. **Scalars, `Ref`s and 0-dimensional arrays**: passed to every field unchanged.
+
+4. **Ordinary 1D arrays**: split into the segments of the fields in the flattened layout,
+   so they must have `length(v)` elements. For `v = HeterogeneousVector(a = [1, 2], b = 3.0)`,
+   `v .+ [10, 20, 30]` adds `[10, 20]` to `a` and `30` to `b`.
+
+5. **Tuples, arrays with two or more dimensions, and `CollectionVector`s**: not supported,
+   throw an `ArgumentError`.
 
 # Examples
 ```jldoctest
@@ -70,6 +79,20 @@ function Base.BroadcastStyle(style::HeterogeneousVectorStyle, ::Broadcast.Defaul
     style
 end
 
+function Base.BroadcastStyle(style::HeterogeneousVectorStyle, ::Broadcast.Unknown)
+    style
+end
+
+function Base.BroadcastStyle(style::HeterogeneousVectorStyle, ::Broadcast.AbstractArrayStyle{0})
+    style
+end
+
+# N-dimensional array styles (except 0D and 1D handled above) are not supported.
+function Base.BroadcastStyle(::HeterogeneousVectorStyle,
+        ::Broadcast.AbstractArrayStyle{N}) where {N}
+    throw(ArgumentError("Cannot broadcast AbstractHeterogeneousVector with AbstractArray{$N}; only scalar and 1D array styles are supported"))
+end
+
 # Tuples are not supported.
 # TODO: If we find some way to partition tuples into segments in a type-stable and
 # allocation-free way (like 1D arrays), we could add support.
@@ -83,30 +106,31 @@ function Base.BroadcastStyle(::HeterogeneousVectorStyle,
     throw(ArgumentError("Cannot broadcast AbstractHeterogeneousVector with AbstractArray{$N}; only scalar and 1D array styles are supported"))
 end
 
-# Helper function to find HeterogeneousVector in broadcast arguments
-function find_heterogeneous_vector(bc::Broadcast.Broadcasted)
-    find_heterogeneous_vector(bc.args)
+# The first HeterogeneousVector or CollectionVector in the broadcast tree, `nothing` if there is none
+function find_container(bc::Broadcast.Broadcasted)
+    find_container(bc.args)
 end
 
-function find_heterogeneous_vector(args::Tuple)
-    find_heterogeneous_vector(find_heterogeneous_vector(args[1]), Base.tail(args))
+function find_container(args::Tuple)
+    find_container(find_container(args[1]), Base.tail(args))
 end
 
-find_heterogeneous_vector(x::Broadcast.Extruded) = x.x
-find_heterogeneous_vector(x) = x
-find_heterogeneous_vector(::Tuple{}) = nothing
-find_heterogeneous_vector(x::AbstractHeterogeneousVector, rest) = x
-find_heterogeneous_vector(::Any, rest) = find_heterogeneous_vector(rest)
+find_container(x::Broadcast.Extruded) = x.x
+find_container(x) = x
+find_container(::Tuple{}) = nothing
+find_container(x::AbstractHeterogeneousVector, rest) = x
+find_container(x::CollectionVector, rest) = x
+find_container(::Any, rest) = find_container(rest)
 
 function Base.similar(bc::Broadcast.Broadcasted{HeterogeneousVectorStyle{Names}}) where {Names}
-    hv = find_heterogeneous_vector(bc)
+    hv = find_container(bc)
     similar(hv)
 end
 
 function Base.similar(
         bc::Broadcast.Broadcasted{HeterogeneousVectorStyle{Names}},
         ::Type{ElType}) where {Names, ElType}
-    hv = find_heterogeneous_vector(bc)
+    hv = find_container(bc)
     similar_x = map(NamedTuple(hv)) do field
         _similar_field(field, ElType)
     end
@@ -141,6 +165,16 @@ end
 segment(::Ref, s, e) = s
 segment(::AbstractArray, s, e) = s:e
 
+# The part of an ordinary 1D array that belongs to field `name`. `segment` is zero-based and
+# is offset by the array's first index. A segment of `nothing` marks a field whose elements
+# occupy several storage slots each (e.g. a complex field): its elements cannot be paired
+# with the slots of an ordinary array and the broadcast is rejected.
+segmentview(arr, segment, name) = view(arr, firstindex(arr) .+ segment)
+function segmentview(arr, ::Nothing, name)
+    throw(ArgumentError("Cannot broadcast field '$name' with an ordinary array: its " *
+                        "elements occupy more than one storage slot each"))
+end
+
 # Bookkeeping for one (possibly nested) broadcast while `unpack_broadcast` walks the tree.
 mutable struct BcInfo
     Args::DataType
@@ -162,10 +196,11 @@ end
 
 Build the per-field broadcast for `field` out of the broadcast tree `bc`.
 
-Every heterogeneous vector in the tree is replaced by its field `field`, every ordinary
-1D array by a view onto `segment_range` (the zero-based segment of `field` in the
-flattened layout, see `compute_segment_ranges`), and everything else (scalars,
-`Ref`s, tuples, 0-dimensional arrays, ...) is passed through unchanged.
+Every heterogeneous vector or `CollectionVector` in the tree is replaced by its field
+`field`, every ordinary 1D array by a view onto `segment_range` (the zero-based segment of
+`field` in the flattened layout, see `compute_segment_ranges` and `segmentview`), and
+everything else (scalars, `Ref`s, tuples, 0-dimensional arrays, ...) is passed through
+unchanged.
 """
 @generated function unpack_broadcast(bc::Broadcast.Broadcasted{BcStyle, Axes, F, Args},
         ::Val{field}, segment_range) where {BcStyle, Axes, F, Args, field}
@@ -207,12 +242,12 @@ flattened layout, see `compute_segment_ranges`), and everything else (scalars,
                 break
             end
 
-            if ArgT <: AbstractHeterogeneousVector
+            if ArgT <: Union{AbstractHeterogeneousVector, CollectionVector}
                 current_arg_expr = :(getproperty($current_arg_expr, $(QuoteNode(field))))
             elseif ArgT <: AbstractArray{<:Any, 1}
                 # Partition ordinary 1D arrays like the heterogeneous vector.
-                current_arg_expr = :(view($current_arg_expr, firstindex($current_arg_expr) .+
-                                                             segment_range))
+                current_arg_expr = :(segmentview($current_arg_expr, segment_range,
+                    $(QuoteNode(field))))
             end
             push!(res, current_arg_expr)
         end
@@ -267,7 +302,7 @@ julia> result.b
 @inline Base.@constprop :aggressive function Base.copy(
         bc::Broadcast.Broadcasted{HeterogeneousVectorStyle{Names}}
 ) where {Names}
-    hv = find_heterogeneous_vector(bc)
+    hv = find_container(bc)
     segment_ranges = compute_segment_ranges(NamedTuple(hv))
     function map_fun(::Val{name}) where {name}
         bc_unpacked = unpack_broadcast(bc, Val(name), segment_ranges[name])
@@ -381,7 +416,7 @@ julia> residuals
         dest::AbstractArray,
         bc::Broadcast.Broadcasted{HeterogeneousVectorStyle{Names}}
 ) where {Names}
-    hv = find_heterogeneous_vector(bc)
+    hv = find_container(bc)
     dest_idx = firstindex(dest)
     segment_ranges = compute_segment_ranges(NamedTuple(hv))
     function map_fun(::Val{name}) where {name}

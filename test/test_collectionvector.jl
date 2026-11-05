@@ -1,0 +1,410 @@
+using HeterogeneousArrays: HeterogeneousArrays, rawdata, shapeof, attach
+
+@testset "CollectionVector: construction" begin
+    x = CollectionVector(θ = 0.1u"rad", pos = [1.0, 2.0]u"m")
+    @test x isa CollectionVector{Float64}
+    @test rawdata(x) == [0.1, 1.0, 2.0]
+    @test shapeof(x) == (θ = (1, u"rad"), pos = (2:3, u"m"))
+    @test eltype(x) == Unitful.Quantity{Float64}
+    @test length(x) == 3
+    @test CollectionVector((θ = 0.1u"rad", pos = [1.0, 2.0]u"m")) == x      # NamedTuple form
+
+    @testset "plain-number fields" begin
+        y = CollectionVector(n = 3.0, w = [1.0, 2.0], v = [3.0, 4.0]u"m/s")
+        @test shapeof(y) == (n = (1, nothing), w = (2:3, nothing), v = (4:5, u"m/s"))
+        @test y.w isa SubArray                # no reinterpret needed
+        @test y.n === 3.0
+        @test eltype(y) == Unitful.Quantity{Float64}
+    end
+
+    @testset "mixed units and number types within a field" begin
+        @test rawdata(CollectionVector(a = Any[4.5u"m", 9.5u"ft"])) ≈ [4.5, 2.8956]
+        @test rawdata(CollectionVector(a = [1.0u"m", 50.0u"cm"])) == [1.0, 0.5]
+        @test eltype(rawdata(CollectionVector(a = Any[4.5f0u"m", 9.5u"ft"]))) == Float64
+        @test eltype(rawdata(CollectionVector(a = [1.0f0, 2.0f0]u"m", b = 1.0f0))) ==
+              Float32
+        @test eltype(rawdata(CollectionVector(a = [1, 2]u"m", b = 1.5))) == Float64
+        @test eltype(rawdata(CollectionVector(a = Any[402.24f0, 41.2]))) == Float64
+    end
+
+    @testset "rejected inputs" begin
+        @test_throws ArgumentError CollectionVector()
+        @test_throws ArgumentError CollectionVector(a = Float64[])
+        e = try
+            CollectionVector(a = [4.5u"m", 9.5u"kg"])
+        catch e
+            e
+        end
+        @test e isa ArgumentError
+        @test occursin("Field 'a'", e.msg) && occursin("element 2 is 9.5 kg", e.msg) &&
+              occursin("DimensionError", e.msg)
+        for bad in ([FakeQuantity(2.2, :kms)], [2.2]DynamicQuantities.us"km/s",
+            [2.2]DynamicQuantities.u"km/s",
+            [1.0 + 2im]u"m")
+            e = try
+                CollectionVector(a = bad)
+            catch e
+                e
+            end
+            @test e isa ArgumentError && occursin("does not support", e.msg) &&
+                  occursin("is_storable", e.msg)
+        end
+        # Abstract eltype: an unsupported element past the first one is also caught
+        e = try
+            CollectionVector(a = Any[1.0u"m", "x"])
+        catch e
+            e
+        end
+        @test e isa ArgumentError && occursin("element type String", e.msg) &&
+              occursin("is_storable", e.msg)
+        e = try
+            CollectionVector(a = big(1.0)u"m")
+        catch e
+            e
+        end
+        @test e isa ArgumentError && occursin("isbits", e.msg)
+    end
+end
+
+@testset "CollectionVector: property access" begin
+    x = CollectionVector(θ = 0.1u"rad", pos = [1.0, 2.0]u"m")
+    @test x.θ === 0.1u"rad"
+    @test x.pos isa Base.ReinterpretArray
+    @test x.pos[2] === 2.0u"m"
+    @test propertynames(x) == (:θ, :pos)
+    @test_throws ArgumentError x.nope
+
+    x.pos[1] = 50u"cm"
+    @test rawdata(x) ≈ [0.1, 0.5, 2.0]
+    x.pos .= [3.0, 4.0]u"cm"
+    @test rawdata(x) ≈ [0.1, 0.03, 0.04]
+    x.pos .= 0.0u"m"
+    @test rawdata(x) ≈ [0.1, 0.0, 0.0]
+    x.pos .= 2 .* x.pos .+ 1u"m"
+    @test rawdata(x) ≈ [0.1, 1.0, 1.0]
+    x.pos = [1.0, 2.0]u"m"
+    @test rawdata(x) ≈ [0.1, 1.0, 2.0]
+    x.θ = 90u"°"
+    @test rawdata(x)[1] ≈ π / 2
+
+    @test_throws Unitful.DimensionError x.θ = 1.0u"m"
+    @test_throws Unitful.DimensionError x.pos[1] = 7.0
+    @test_throws Unitful.DimensionError x.pos[1] = 1.0u"s"
+    @test_throws ArgumentError x.pos = 1.0u"m"
+    @test_throws DimensionMismatch x.pos = [1.0]u"m"
+
+    # `x.pos .= rhs` writes through the field view and is inferred
+    rhs = [3.0, 4.0]u"m"
+    assign!(x, rhs) = (x.pos .= rhs; nothing)
+    assign!(x, rhs)
+    @test x.pos == rhs
+    @test (@allocated assign!(x, rhs)) == 0
+
+    # `.=` also writes into a scalar field, through the one-element view over its slot
+    x.θ .= 90u"°"
+    @test rawdata(x)[1] ≈ π / 2
+    x.θ .= 2 .* x.θ
+    @test rawdata(x)[1] ≈ π
+    assignscalar!(x, q) = (x.θ .= q; nothing)
+    assignscalar!(x, 0.5u"rad")
+    @test x.θ === 0.5u"rad"
+    q = 0.2u"rad"
+    @test (@allocated assignscalar!(x, q)) == 0
+end
+
+@testset "CollectionVector: flat indexing" begin
+    x = CollectionVector(θ = 0.1u"rad", pos = [1.0, 2.0]u"m")
+    @test x[1] === 0.1u"rad"
+    @test x[2] === 1.0u"m"
+    @test collect(x) == [0.1u"rad", 1.0u"m", 2.0u"m"]
+    x[2] = 50u"cm"
+    @test rawdata(x)[2] ≈ 0.5
+    @test_throws Unitful.DimensionError x[1] = 1.0u"m"
+    @test_throws BoundsError x[4]
+end
+
+@testset "CollectionVector: attach, rawdata, shapeof" begin
+    x = CollectionVector(θ = 0.1u"rad", pos = [1.0, 2.0]u"m")
+    S = shapeof(x)
+    @test attach(S, rawdata(x)) == x
+    @test rawdata(attach(S, [1.0, 2.0, 3.0])) === [1.0, 2.0, 3.0] ||
+          rawdata(attach(S, [1.0, 2.0, 3.0])) == [1.0, 2.0, 3.0]
+    @test_throws DimensionMismatch attach(S, [1.0, 2.0])
+    @test rawdata([1.0, 2.0]) == [1.0, 2.0]                     # identity on plain vectors
+
+    x32 = attach(S, Float32[1, 2, 3])
+    @test x32 isa CollectionVector{Float32} && x32.pos[1] === 2.0f0u"m"
+
+    # Test with Duals from ForwardDiff.
+    xd = attach(S, ForwardDiff.Dual.([1.0, 2.0, 3.0], 1.0))
+    @test xd.pos[1] isa Unitful.Quantity{<:ForwardDiff.Dual}
+    @test ForwardDiff.value(ustrip(xd.θ)) == 1.0
+end
+
+@testset "CollectionVector: NamedTuple and show" begin
+    x = CollectionVector(θ = 0.1u"rad", pos = [1.0, 2.0]u"m")
+    nt = NamedTuple(x)
+    @test nt.θ === 0.1u"rad" && nt.pos == [1.0, 2.0]u"m" && nt.pos isa Vector
+    s = sprint(show, MIME"text/plain"(), x)
+    @test occursin("3-element CollectionVector{Float64} with fields (:θ, :pos)", s)
+    @test occursin("θ = 0.1 rad", s) && occursin("pos = [1.0, 2.0] m", s)
+end
+
+@testset "CollectionVector: complex fields" begin
+    c = CollectionVector(z = [1.0 + 2im, 3.0 + 4im], r = 5.0, s = 1.0 + 0im)
+    @test rawdata(c) == [1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 0.0]        # two real slots per complex element
+    @test eltype(rawdata(c)) == Float64
+    @test shapeof(c) == (z = (1:4, HeterogeneousArrays.ComplexField()),
+        r = (5, nothing), s = (6, HeterogeneousArrays.ComplexField()))
+    @test length(c) == 7                                            # flat indexing counts slots
+    @test eltype(c) == Float64
+
+    @test c.z isa Base.ReinterpretArray && c.z[2] === 3.0 + 4.0im
+    @test c.r === 5.0                                               # not promoted to complex
+    @test c.s === 1.0 + 0.0im
+
+    c.z[1] = 7.0 - 1im
+    @test rawdata(c)[1:2] == [7.0, -1.0]
+    c.z .= im .* c.z
+    @test rawdata(c)[1:4] == [1.0, 7.0, -4.0, 3.0]
+    c.z = [0.0 + 1im, 1.0 + 0im]
+    @test rawdata(c)[1:4] == [0.0, 1.0, 1.0, 0.0]
+    c.s = 2.0 + 3im
+    @test rawdata(c)[6:7] == [2.0, 3.0]
+    @test c[2] === 1.0 && c[7] === 3.0                              # raw parts through the flat face
+    c[2] = 9.0
+    @test c.z[1] === 0.0 + 9.0im
+    @test NamedTuple(c).z isa Vector{ComplexF64}
+    @test occursin("z = ComplexF64[0.0+9.0im, 1.0+0.0im]", sprint(show, MIME"text/plain"(), c))
+    @test_throws DimensionMismatch c.z = [1.0 + 0im]
+
+    @test attach(shapeof(c), rawdata(c)) == c
+    # Test that attach works with Duals. Note that Complex of Duals is something but not
+    # Dual of Complexes (Dual is defined as a subtype of Real inside ForwardDiff, and has
+    # to be for mathematical reasons).
+    cd = attach(shapeof(c), ForwardDiff.Dual.(rawdata(c), 1.0))
+    @test cd.z[1] isa Complex{<:ForwardDiff.Dual}
+end
+
+@testset "CollectionVector: writes convert into the element type" begin
+    # Every write form converts the value into the field's element type, or throws
+    x = CollectionVector(r = 1.0, z = [1.0 + 2im, 3.0 + 4im], pos = [1.0, 2.0]u"m")
+    @test_throws Unitful.DimensionError x.r = 1.0u"m"
+    @test_throws Unitful.DimensionError x[2] = 1.0u"m"               # raw slot of a complex element
+    @test_throws InexactError x.r = 1.0 + 2im
+    x.r = 2.0u"m" / 1.0u"cm"
+    @test x.r ≈ 200.0                # dimensionless quantity
+    x.r = 3.0 + 0im
+    @test x.r === 3.0
+    # Assigning a field from a view of itself
+    x.z = view(x.z, 2:-1:1)
+    @test x.z == [3.0 + 4im, 1.0 + 2im]
+    x.pos = view(x.pos, 2:-1:1)
+    @test x.pos == [2.0, 1.0]u"m"
+    # Writes into Dual storage, as during ForwardDiff
+    xd = attach(shapeof(x), ForwardDiff.Dual.(rawdata(x), 1.0))
+    xd.pos = [1.0, 2.0]u"cm"
+    @test ForwardDiff.value.(ustrip.(xd.pos)) ≈ [0.01, 0.02]
+    xd.z[1] = 1.0 + 2im
+    @test ForwardDiff.value(imag(xd.z[1])) == 2.0
+end
+
+@testset "CollectionVector: element layout" begin
+    # An element occupies one slot per component
+    t = CollectionVector(a = [Triple(1.0, 2.0, 3.0), Triple(4.0, 5.0, 6.0)], b = 7.0)
+    @test rawdata(t) == 1.0:7.0
+    @test length(t) == 7
+    @test t.a[2] === Triple(4.0, 5.0, 6.0)
+    @test t[5] === 5.0                                              # raw slot inside an element
+    t.a[1] = Triple(0.0, 0.0, 0.0)
+    @test rawdata(t)[1:3] == zeros(3)
+    @test attach(shapeof(t), rawdata(t)) == t
+    # Components that are not the storage type are rejected
+    @test_throws "Their components are (Float64, Float64, Float64), and all must be Float32" CollectionVector(
+        a = MislabeledTriple(1.0, 2.0, 3.0))
+    @test_throws "Field 'a': elements of type Triple do not have the memory layout" attach(
+        shapeof(t), ForwardDiff.Dual.(rawdata(t), 1.0))
+end
+
+@testset "CollectionVector: element API from outside" begin
+    t = CollectionVector(a = [TaggedNumber(2.2, :kms), TaggedNumber(9.2, :kms)], b = TaggedNumber(1.0, :m))
+    @test rawdata(t) == [2.2, 9.2, 1.0]
+    @test shapeof(t) == (a = (1:2, :kms), b = (3, :m))
+    @test t.b == TaggedNumber(1.0, :m)
+    @test t.a[2] == TaggedNumber(9.2, :kms)
+    @test t[1] == TaggedNumber(2.2, :kms)
+    t.a[1] = TaggedNumber(5.0, :kms)
+    @test rawdata(t)[1] == 5.0
+    e = try
+        CollectionVector(a = [TaggedNumber(2.2, :kms), TaggedNumber(9.2, :m)])
+    catch e
+        e
+    end
+    @test e isa ArgumentError && occursin("element 2", e.msg) &&
+          occursin("unit mismatch", e.msg)
+    # A type whose values are not laid out like one raw number is caught by the layout check.
+    HeterogeneousArrays.is_storable(::Type{<:FakeQuantity}) = true
+    HeterogeneousArrays.rawtype(::Type{FakeQuantity{T}}) where {T} = T
+    HeterogeneousArrays.field_type(q::FakeQuantity) = q.unit
+    HeterogeneousArrays.elementtype(::Type{T}, ::Symbol) where {T} = FakeQuantity{T}   # overrides TaggedNumber's for this check
+    e = try
+        CollectionVector(a = FakeQuantity(1.0, :m))
+    catch e
+        e
+    end
+    @test e isa ArgumentError && occursin("memory layout", e.msg)
+    HeterogeneousArrays.elementtype(::Type{T}, u::Symbol) where {T} = TaggedNumber{T, u}  # restore
+end
+
+@testset "CollectionVector: Unitful.AbstractQuantity subtypes" begin
+    x = CollectionVector(a = [FrozenQuantity(1.0, u"m"), FrozenQuantity(50.0, u"cm")],
+        b = FrozenQuantity(0.5, u"rad"))
+    @test rawdata(x) == [1.0, 0.5, 0.5]
+    @test shapeof(x) == (a = (1:2, u"m"), b = (3, u"rad"))
+    # The field type is the unit alone (for the current version of the prototype), so
+    # elements read back as plain `Quantity`s
+    @test x.b === 0.5u"rad"
+    @test x.a == [1.0, 0.5]u"m"
+    @test eltype(x) == Unitful.Quantity{Float64}
+    # Assignment converts into the field's unit, from either quantity type
+    x.b = FrozenQuantity(180.0, u"°")
+    @test rawdata(x)[3] ≈ Float64(π)
+    x.a[1] = FrozenQuantity(3.0, u"m")
+    @test rawdata(x)[1] == 3.0
+    x[2] = FrozenQuantity(40.0, u"cm")
+    @test rawdata(x)[2] ≈ 0.4
+    @test_throws Unitful.DimensionError x.b = FrozenQuantity(1.0, u"kg")
+    # Mixed with regular quantities in one field, and promotion of the raw type
+    @test rawdata(CollectionVector(a = Any[FrozenQuantity(1.0f0, u"m"), 50.0u"cm"])) ==
+          [1.0, 0.5]
+    @test eltype(rawdata(CollectionVector(a = FrozenQuantity(1.0f0, u"m")))) == Float32
+end
+
+@testset "CollectionVector: array interface" begin
+    x = CollectionVector(a = [1.0, 2.0]u"m", b = [3.0, 4.0, 5.0]u"s", c = 6, d = 7.0u"rad",
+        e = [8.0 + 9.0im, 10.0 + 11.0im])
+
+    # similar, copy and zero keep the shape, with new storage
+    for y in (similar(x), copy(x), zero(x))
+        @test y isa typeof(x)
+        @test rawdata(y) !== rawdata(x)
+    end
+    @test copy(x) == x
+    @test rawdata(zero(x)) == zeros(11)
+    @test zero(x).a == [0.0, 0.0]u"m" && zero(x).e == [0.0 + 0.0im, 0.0 + 0.0im]
+
+    # copyto! between vectors of the same shape, also across storage types
+    y = zero(x)
+    @test copyto!(y, x) === y && y == x
+    @test copyto!(zero(x), attach(shapeof(x), Float32.(rawdata(x)))) == x
+    @test copy!(zero(x), x) == x
+    # Different units or element types are converted field by field
+    y = CollectionVector(
+        a = zeros(2)u"cm", b = zeros(Float32, 3)u"minute", c = 0.0, d = 0.0u"°",
+        e = [0.0 + 0.0im, 0.0 + 0.0im])
+    @test copyto!(y, x) === y
+    @test y.a == [100.0, 200.0]u"cm" && y.b == x.b && y.c == 6.0 && y.d ≈ x.d && y.e == x.e
+    @test copyto!(zero(x), y) ≈ x
+    @test copy!(zero(y), x) ≈ y
+    # Incompatible units are refused
+    @test_throws Unitful.DimensionError copyto!(CollectionVector(p = 0.0u"s"), CollectionVector(p = 1.0u"m"))
+    @test_throws Unitful.DimensionError copyto!(
+        CollectionVector(p = zeros(2)u"s"), CollectionVector(p = [1.0, 2.0]u"m"))
+    # Different field layouts are refused, even when the slots line up
+    @test_throws "different field names: \ndestination shape: (v = (1, s), w = (2, s)) \nsource shape:      (u = (1:2, s),)" copyto!(
+        CollectionVector(v = 1.0u"s", w = 2.0u"s"), CollectionVector(u = [1.0, 2.0]u"s"))
+    @test_throws "different field names" copyto!(
+        CollectionVector(p = [1.0, 2.0]u"m"), CollectionVector(q = [3.0, 4.0]u"m"))
+    @test_throws "different field lengths" copyto!(
+        CollectionVector(p = zeros(3)u"m"), CollectionVector(p = [1.0, 2.0]u"m"))
+    @test_throws "different field kinds (scalar/array)" copyto!(
+        CollectionVector(p = 0.0), CollectionVector(p = [1.0]))
+    # Element types convert like scalars do: a complex value with a nonzero imaginary part
+    # cannot be stored in a real field
+    @test copyto!(CollectionVector(p = 0.0), CollectionVector(p = 2.0 + 0.0im)).p == 2.0
+    @test_throws InexactError copyto!(CollectionVector(p = 0.0), CollectionVector(p = 1.0im))
+    # copy works with a plain vector source
+    @test copyto!(CollectionVector(p = zeros(2)u"m"), [1.0, 2.0]u"cm").p ≈ [1.0, 2.0]u"cm"
+end
+
+@testset "CollectionVector: iteration" begin
+    # Iteration is the AbstractArray default (eachindex + getindex): it walks the raw
+    # storage vector slot by slot
+    x = CollectionVector(a = [1.0, 2.0]u"m", b = 3.0u"s", c = [4.0 + 5.0im])
+    @test collect(x) == [x[i] for i in eachindex(x)]
+    @test collect(x) == [1.0u"m", 2.0u"m", 3.0u"s", 4.0, 5.0]
+    @test length(x) == 5 && eltype(x) === Unitful.Quantity{Float64}
+
+    # With a single unit the element type is concrete and element loops are inferred
+    u = CollectionVector(a = [1.0, 2.0]u"m", b = 3.0u"m")
+    @test eltype(u) === typeof(1.0u"m")
+    # The iteration state is opaque: its form differs between Julia versions
+    y = @inferred(Nothing, iterate(u))
+    @test y[1] == 1.0u"m"
+    y = @inferred(Nothing, iterate(u, y[2]))
+    @test y[1] == 2.0u"m"
+    @test @inferred(sum(u)) == 6.0u"m"
+    @test @inferred(maximum(u)) == 3.0u"m"
+end
+
+@testset "CollectionVector: isapprox" begin
+    x = CollectionVector(a = [1.0, 2.0]u"m", b = 3.0u"s", c = [4.0 + 5.0im], d = 6.0)
+    y = copy(x)
+    @test x ≈ y
+    y.a[2] += 1e-12u"m"
+    @test x ≈ y
+    y.a[2] = 2.5u"m"
+    @test !(x ≈ y) && isapprox(x, y; rtol = 0.5)
+    # Fields are compared on their own scale, after unit conversion
+    @test x ≈
+          CollectionVector(a = [100.0, 200.0]u"cm", b = 3000.0u"ms", c = [4.0 + 5.0im], d = 6.0)
+    @test isapprox(CollectionVector(p = [1.0]u"m", q = 2.0u"m"),
+        CollectionVector(p = [1.5]u"m", q = 2.0u"m"); atol = 1.0u"m")
+    # A unitful atol cannot apply to a field of another dimension
+    @test_throws Unitful.DimensionError isapprox(x, y; atol = 1.0u"m")
+    # Different field names, scalar against array, or a plain number against a quantity
+    @test !(x ≈
+            CollectionVector(a = [1.0, 2.0]u"m", b = 3.0u"s", c = [4.0 + 5.0im], e = 6.0))
+    @test !(x ≈
+            CollectionVector(a = [1.0, 2.0]u"m", b = [3.0]u"s", c = [4.0 + 5.0im], d = 6.0))
+    @test !(x ≈
+            CollectionVector(a = [1.0, 2.0]u"m", b = 3.0u"s", c = [4.0 + 5.0im], d = 6.0u"m"))
+    n = CollectionVector(a = [NaN, 1.0]u"m")
+    @test !(n ≈ n) && isapprox(n, n; nans = true)
+    @test @inferred(isapprox(x, y)) isa Bool
+end
+
+@testset "CollectionVector: equality" begin
+    x = CollectionVector(a = [1.0, 2.0]u"m", b = 3.0u"s")
+    @test x == copy(x)
+    @test x ≈ CollectionVector(a = [100.0, 200.0]u"cm", b = 3000.0u"ms")  # after conversion
+    @test x != CollectionVector(a = [1.0, 2.5]u"m", b = 3.0u"s")
+    @test @inferred(x == x) isa Bool
+end
+
+@testset "CollectionVector: aliasing" begin
+    # The vector reports the memory of its storage, so a field view is known to alias it
+    x = CollectionVector(a = [1.0, 2.0, 3.0]u"m", b = 4.0u"m")
+    @test Base.dataids(x) == Base.dataids(rawdata(x))
+    @test Base.mightalias(x, x.a) && Base.mightalias(x, view(x.a, 1:2)) &&
+          Base.mightalias(x, rawdata(x))
+    @test !Base.mightalias(x, copy(x))
+    c = CollectionVector(z = [1.0 + 2im, 3.0 + 4im])
+    @test Base.mightalias(c, c.z)
+    # Writing a reversed view of a field back onto the vector reads all values before writing
+    x = CollectionVector(a = [1.0, 2.0, 3.0])
+    x .= view(x.a, 3:-1:1)
+    @test rawdata(x) == [3.0, 2.0, 1.0]
+end
+
+@testset "CollectionVector: field loops stay inferred past two fields" begin
+    dest = CollectionVector(a = 1.0u"m", b = [1.0, 2.0]u"s", c = 1.0u"kg", d = [1.0, 2.0]u"A")
+    src = CollectionVector(a = 100.0u"cm", b = [1.0, 2.0]u"ms", c = 1.0u"g", d = [1.0, 2.0]u"mA")
+    copyto!(dest, src)
+    @test rawdata(dest) ≈ [1.0, 0.001, 0.002, 0.001, 0.001, 0.002]
+    @test (@allocated copyto!(dest, src)) == 0
+    x = CollectionVector(a = 1.0u"m", b = 2.0u"s", c = 3.0u"kg", d = 4.0u"A")
+    y = CollectionVector(a = 100.0u"cm", b = 2000.0u"ms", c = 3000.0u"g", d = 4000.0u"mA")
+    @test x ≈ y
+    @test (@allocated x ≈ y) == 0
+end
