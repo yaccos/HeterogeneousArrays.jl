@@ -451,9 +451,6 @@ end
 # CollectionVector recurse over such a tuple: inference widens a recursion that carries the
 # names in a `Val{names}` from the third field on, but recursion over a tuple of `Val`s keeps
 # things stable.
-# TODO: even if they stay type-stable, tuple recursions with more than 32 fields start to
-# allocate and slow down. Potential solutions can be @generated functions or
-# the UnrolledUtilities.jl package
 @inline function valnames(::Val{names}) where {names}
     ntuple(i -> Val(names[i]), Val(length(names)))
 end
