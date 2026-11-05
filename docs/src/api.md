@@ -47,3 +47,12 @@ Base.zero(::HeterogeneousVector)
 ```@docs
 Base.BroadcastStyle(::Type{HeterogeneousVector})
 ```
+
+## CollectionVector
+
+```@docs
+CollectionVector
+HeterogeneousArrays.rawdata
+HeterogeneousArrays.attach
+HeterogeneousArrays.shapeof
+```
