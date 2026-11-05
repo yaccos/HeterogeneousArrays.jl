@@ -40,6 +40,7 @@ include("allocation.jl")
 include("collection_vector.jl")
 include("broadcasting.jl")
 include("collection_broadcasting.jl")
+include("collection_reductions.jl")
 include("printing.jl")
 
 export CollectionVector
