@@ -70,8 +70,10 @@ end
     # Storage type
     # Float32 into Float64 and the opposite converts
     half_precision_above(p) = p > 3.5 ? Float32(p) : p
-    @test rawdata(half_precision_above.(CollectionVector(a = [3.0, 4.0]))) isa Vector{Float64}
-    @test rawdata(half_precision_above.(CollectionVector(a = [4.0, 3.0]))) isa Vector{Float32}
+    @test rawdata(half_precision_above.(CollectionVector(a = [3.0, 4.0]))) isa
+          Vector{Float64}
+    @test rawdata(half_precision_above.(CollectionVector(a = [4.0, 3.0]))) isa
+          Vector{Float32}
     # Bool and Float64 convert if possible...
     is_big(p) = p > 3.5 ? true : p
     @test rawdata(is_big.(CollectionVector(a = [3.0, 4.0]))) == [3.0, 1.0]
