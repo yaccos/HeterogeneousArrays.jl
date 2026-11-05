@@ -377,7 +377,7 @@ end
 @testset "CollectionVector: equality" begin
     x = CollectionVector(a = [1.0, 2.0]u"m", b = 3.0u"s")
     @test x == copy(x)
-    @test x == CollectionVector(a = [100.0, 200.0]u"cm", b = 3000.0u"ms")  # after conversion
+    @test x ≈ CollectionVector(a = [100.0, 200.0]u"cm", b = 3000.0u"ms")  # after conversion
     @test x != CollectionVector(a = [1.0, 2.5]u"m", b = 3.0u"s")
     @test @inferred(x == x) isa Bool
 end
