@@ -55,4 +55,8 @@ CollectionVector
 HeterogeneousArrays.rawdata
 HeterogeneousArrays.attach
 HeterogeneousArrays.shapeof
+HeterogeneousArrays.slotview
+NamedTuple(::CollectionVector)
+HeterogeneousArrays.CollectionVectorStyle
+Base.copy(::Base.Broadcast.Broadcasted{<:HeterogeneousArrays.CollectionVectorStyle})
 ```

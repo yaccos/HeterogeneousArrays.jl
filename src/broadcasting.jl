@@ -11,14 +11,23 @@ involved in a broadcast operation, they must have compatible field names.
 
 # Broadcast Rules
 
-1. **Single HeterogeneousVector with other types**: The broadcast result preserves the
-   HeterogeneousVector structure and field names.
+The broadcast is evaluated field by field, and the result preserves the HeterogeneousVector
+structure and field names. The other arguments are handled as follows:
 
-2. **Multiple HeterogeneousVectors with matching field names**: All vectors must have identical
-   field names; operations proceed field-by-field in parallel.
+1. **HeterogeneousVectors with matching field names**: each one is replaced by the field
+   being computed.
 
-3. **Multiple HeterogeneousVectors with different field names**: Throws an error to prevent
-   silent data corruption.
+2. **HeterogeneousVectors with different field names**: throw an error to prevent silent
+   data corruption.
+
+3. **Scalars, `Ref`s and 0-dimensional arrays**: passed to every field unchanged.
+
+4. **Ordinary 1D arrays**: split into the segments of the fields in the flattened layout,
+   so they must have `length(v)` elements. For `v = HeterogeneousVector(a = [1, 2], b = 3.0)`,
+   `v .+ [10, 20, 30]` adds `[10, 20]` to `a` and `30` to `b`.
+
+5. **Tuples, arrays with two or more dimensions, and `CollectionVector`s**: not supported,
+   throw an `ArgumentError`.
 
 # Examples
 ```jldoctest

@@ -12,6 +12,8 @@ the compiler must generate conservative (slow) code for multiple possibilities.
 - **Broadcasting** (`v .+ w`) → type-stable (each field computed separately)
 - **Flattened indexing** (`v[i]`) → *not* type-stable (compiler doesn't know which field contains index `i`)
 
+The same holds for `CollectionVector`.
+
 ## Three Patterns
 
 ### Type-Stable: Named Field Access
