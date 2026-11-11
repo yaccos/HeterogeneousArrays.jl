@@ -107,20 +107,15 @@ function Base.BroadcastStyle(::HeterogeneousVectorStyle,
 end
 
 # The first HeterogeneousVector or CollectionVector in the broadcast tree, `nothing` if there is none
-function find_container(bc::Broadcast.Broadcasted)
-    find_container(bc.args)
+@inline find_container(bc::Broadcast.Broadcasted) = _find_first(bc.args...)
+@inline _find_first() = nothing
+@inline _find_first(x::Union{AbstractHeterogeneousVector, CollectionVector}, rest...) = x
+@inline _find_first(x::Broadcast.Extruded, rest...) = _find_first(x.x, rest...)
+@inline function _find_first(x::Broadcast.Broadcasted, rest...)
+    c = find_container(x)
+    c === nothing ? _find_first(rest...) : c
 end
-
-function find_container(args::Tuple)
-    find_container(find_container(args[1]), Base.tail(args))
-end
-
-find_container(x::Broadcast.Extruded) = x.x
-find_container(x) = x
-find_container(::Tuple{}) = nothing
-find_container(x::AbstractHeterogeneousVector, rest) = x
-find_container(x::CollectionVector, rest) = x
-find_container(::Any, rest) = find_container(rest)
+@inline _find_first(::Any, rest...) = _find_first(rest...)
 
 function Base.similar(bc::Broadcast.Broadcasted{HeterogeneousVectorStyle{Names}}) where {Names}
     hv = find_container(bc)

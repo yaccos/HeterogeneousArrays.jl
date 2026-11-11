@@ -145,6 +145,13 @@ end
     @test rawdata(x) == [3.0, 2.0, 1.0]
 end
 
+@testset "no allocations with scalar before nested broadcast" begin
+    u = CollectionVector(A = 1.0, B = fill(1.0u"m", 10)); k = u ./ u"s"; dt = 1.0u"s"
+    f(u, dt, k) = (u .= dt .* muladd.(0.1, k, k); nothing)
+    f(u, dt, k)
+    @test @allocated(f(u, dt, k)) == 0
+end
+
 @testset "CollectionVector broadcasting: ordinary arrays" begin
     u = CollectionVector(a = [0.0, 0.0], b = 0.0)
     v = [1.0, 2.0, 3.0]
