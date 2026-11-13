@@ -18,4 +18,5 @@ using OffsetArrays
     include("test_collectionvector.jl")
     include("test_collectionvector_broadcasting.jl")
     include("test_collectionvector_reductions.jl")
+    include("test_cv_wrapper.jl")
 end
