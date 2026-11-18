@@ -1,4 +1,6 @@
 [deps]
+ADTypes = "47edcb42-4c32-4615-8424-f2b9edc5f35b"
+SciMLBase = "0bca4576-84f4-4d90-8ffe-ffa030f20462"
 DynamicQuantities = "06fc5a27-2a28-4c7c-a15d-362465fb6821"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
@@ -10,6 +12,7 @@ Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 HeterogeneousArrays = "40d36c5c-e028-4551-8108-c37812a952b9"
 OffsetArrays = "6fe1bfb0-de20-5000-8ca7-80f57d26f881"
+LSODA = "7f56f5a3-f504-529b-bc02-0b1fe5e64312"
 
 [sources]
 HeterogeneousArrays = {path = ".."}
