@@ -11,4 +11,4 @@ HeterogeneousArrays = {path = ".."}
 [compat]
 Documenter = "1.17.0"
 ComponentArrays = "0.15.33"
-DifferentialEquations = "7.17.0"
+DifferentialEquations = "8.1.1"
