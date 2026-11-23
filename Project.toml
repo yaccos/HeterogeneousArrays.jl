@@ -17,7 +17,7 @@ SciMLBase = "0bca4576-84f4-4d90-8ffe-ffa030f20462"
 HeterogeneousArraysSciMLBaseExt = "SciMLBase"
 
 [compat]
-RecursiveArrayTools = "3.49.0"
+RecursiveArrayTools = "3.49, 4"
 SciMLBase = "2"
 Unitful = "1.28.0"
 julia = "1.10"
