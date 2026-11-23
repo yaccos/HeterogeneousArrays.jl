@@ -15,7 +15,7 @@ module HeterogeneousArraysSciMLBaseExt
 # Notation: SU = shape of u (`shapeof(u0)`: field names, storage slots and units),
 # SD = shape of du (units of u divided by the time unit), tu = time unit.
 
-using HeterogeneousArrays: HeterogeneousArrays, CollectionVector, rawdata, attach, shapeof
+using HeterogeneousArrays: HeterogeneousArrays, CollectionVector, ComplexField, rawdata, attach, shapeof
 using SciMLBase: SciMLBase
 using Unitful: Unitful, NoUnits, unit, ustrip, dimension
 
@@ -49,6 +49,11 @@ derivative_shape(SU, tu, n = 1) = derivative_shape(SU, tu, Val(n))
 derivative_shape(SU, tu, ::Val{n}) where {n} = map(((slot, ft),) -> (slot, dunit(ft, tu^n)), SU)
 dunit(ft::Unitful.Units, d) = plain(ft / d)
 dunit(::Nothing, d) = plain(inv(d))
+function dunit(ft::ComplexField, d)
+    d == NoUnits || throw(ArgumentError(
+        "cv_wrapper: complex fields require unit-free time; complex quantities with units are not supported."))
+    return ft
+end
 plain(u) = u == NoUnits ? nothing : u
 
 # A time (or collection of times) as plain number(s) in the unit `tu`. Throws if the

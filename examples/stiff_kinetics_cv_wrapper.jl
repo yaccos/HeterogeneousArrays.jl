@@ -35,10 +35,16 @@ end
 # `tspan` must have units
 tspan = (0.0u"s", 1.0e5u"s")
 prob = DE.ODEProblem(robertson!, u0, tspan, p)
+u0_unitless = u0 .|> ustrip
+p_unitless = map(x -> ustrip(x) , p)
+tspan_unitless = tspan .|> ustrip
+prob_unitless = DE.ODEProblem(DE.ODEFunction{true, DE.SciMLBase.FullSpecialize}(robertson!), u0_unitless, tspan_unitless, p_unitless)
+
 
 # Absolute tolerances per field, with units. A bare number like `abstol = 1e-8` is rejected,
 # because its unit would be ambiguous. B stays ~1e-5 mol/L, so it needs a tighter tolerance.
 abstol = (A = 1.0e-8u"mol/L", B = 1.0e-14u"mol/L", C = 1.0e-8u"mol/L")
+abstol_unitless = map(x -> ustrip(x), abstol)
 reltol = 1.0e-6  # relative tolerance is dimensionless
 
 # ------------------------------------------------------------------------------------------
@@ -50,6 +56,8 @@ reltol = 1.0e-6  # relative tolerance is dimensionless
 # Times given as keyword arguments (saveat, dt, tstops, ...) take units too.
 sol = DE.solve(prob, cv_wrapper(DE.Rodas5P()); abstol, reltol,
     saveat = [0.0, 1.0, 10.0, 100.0, 1000.0] .* u"s")
+sol_unitless = DE.solve(prob_unitless, cv_wrapper(DE.Rodas5P()); abstol=abstol_unitless, reltol,
+    saveat = [0.0, 1.0, 10.0, 100.0, 1000.0])
 
 println("retcode: ", sol.retcode, ", steps: ", sol.stats.naccept,
     ", Jacobians: ", sol.stats.njacs)

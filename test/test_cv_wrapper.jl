@@ -15,6 +15,31 @@ function decay(u, p, t)
 end
 
 @testset "cv_wrapper" begin
+    @testset "complex fields" begin
+        complex_rhs!(du, u, p, t) = (du.z = (-2 + 3im) * u.z; nothing)
+        complex_rhs(u, p, t) = CollectionVector(z = (-2 + 3im) * u.z)
+        z0 = 1.0 + 2.0im
+        for rhs in (complex_rhs!, complex_rhs)
+            f = rhs === complex_rhs! ? ODEFunction{true, SciMLBase.FullSpecialize}(rhs) : rhs
+            prob_complex = ODEProblem(f, CollectionVector(z = z0), (0.0, 1.0))
+            sol_complex = solve(prob_complex, cv_wrapper(Rodas5P()); reltol = 1e-9)
+            @test sol_complex.retcode == ReturnCode.Success
+            @test sol_complex.u[end].z ≈ z0 * exp(-2 + 3im) rtol = 1e-6
+            @test sol_complex(0.5).z ≈ z0 * exp((-2 + 3im) * 0.5) rtol = 1e-6
+            @test sol_complex(0.5, Val{1}).z ≈ (-2 + 3im) * z0 * exp((-2 + 3im) * 0.5) rtol = 1e-5
+            prob_unitful_time = ODEProblem(f, CollectionVector(z = z0), (0.0u"s", 1.0u"s"))
+            @test_throws ArgumentError solve(prob_unitful_time, cv_wrapper(Rodas5P()))
+        end
+
+        vector_rhs!(du, u, p, t) = (du.z .= (-2 + 3im) .* u.z; nothing)
+        vector_f = ODEFunction{true, SciMLBase.FullSpecialize}(vector_rhs!)
+        z0s = [z0, 3.0 - 4.0im]
+        prob_vector = ODEProblem(vector_f, CollectionVector(z = z0s), (0.0, 1.0))
+        sol_vector = solve(prob_vector, cv_wrapper(Rodas5P()); reltol = 1e-9)
+        @test sol_vector.retcode == ReturnCode.Success
+        @test sol_vector.u[end].z ≈ z0s .* exp(-2 + 3im) rtol = 1e-6
+    end
+
     u0 = CollectionVector(N = 1.0u"mol", E = 0.0u"J")
     p = (k = 1.0e-3u"s^-1", e = 5.0e4u"J/mol")
     tol = (N = 1.0e-10u"mol", E = 1.0e-5u"J")

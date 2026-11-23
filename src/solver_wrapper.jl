@@ -33,6 +33,10 @@ wrong dimension into it throws a `DimensionError`.
 
 Since the solver only ever sees a plain `Vector`, solvers that need a Jacobian (implicit,
 Rosenbrock, BDF, ...) work, including with ForwardDiff.
+Complex fields are supported when time is unit-free; complex quantities with units are not
+supported. For an in-place, unit-free problem using ForwardDiff, construct its function with
+`ODEFunction{true, SciMLBase.FullSpecialize}(f!)`: SciML's default specialization can wrap
+the original function for plain inputs before `cv_wrapper` supplies Dual-valued states.
 
 # Keyword arguments
 - `tspan` (in the problem) sets the unit of the independent variable. `dt`, `dtmin`, `dtmax`,
