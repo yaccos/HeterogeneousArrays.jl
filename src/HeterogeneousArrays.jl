@@ -42,7 +42,8 @@ include("broadcasting.jl")
 include("collection_broadcasting.jl")
 include("collection_reductions.jl")
 include("printing.jl")
+include("solver_wrapper.jl")
 
-export CollectionVector
+export CollectionVector, cv_wrapper
 
 end # module

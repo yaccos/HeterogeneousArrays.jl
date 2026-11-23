@@ -60,3 +60,9 @@ NamedTuple(::CollectionVector)
 HeterogeneousArrays.CollectionVectorStyle
 Base.copy(::Base.Broadcast.Broadcasted{<:HeterogeneousArrays.CollectionVectorStyle})
 ```
+
+## ODE solver wrapper
+
+```@docs
+cv_wrapper
+```
