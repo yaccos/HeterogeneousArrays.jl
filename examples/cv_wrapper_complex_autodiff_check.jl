@@ -3,8 +3,9 @@
 # Run from the repository root with:
 #   julia --project=examples examples/cv_wrapper_complex_autodiff_check.jl
 #
-# z = x + iy occupies two real storage slots. The Jacobian below is with respect to x and y,
-# not a complex derivative: conjugation makes this ODE non-holomorphic.
+# z = x + iy occupies two real storage slots. ForwardDiff differentiates those real slots,
+# while the ODE operates on Complex{Dual}. For this holomorphic ODE, its real Jacobian can
+# be checked against the known scalar complex derivative.
 
 using HeterogeneousArrays
 using HeterogeneousArrays: rawdata
@@ -17,10 +18,16 @@ u0 = CollectionVector(z = 1.0 + 2.0im)
 @assert rawdata(u0) == [1.0, 2.0]
 @assert eltype(rawdata(u0)) == Float64
 
-# The eigenvalues are approximately -2 and -2000, making the real system stiff.
-p = (a = 1001.0, b = 1.0, c = 999.0)
-J = [-p.a + p.c -p.b; p.b -p.a - p.c]
-tspan = (0.0, 1.0)
+# A nonlinear holomorphic ODE with a rapidly decaying transient.
+p = (lambda = -1000.0 + 10.0im, mu = 0.5 + 0.25im)
+tspan = (0.0, 0.01)
+
+# If f'(z) = a + ib, its Jacobian with respect to (real(z), imag(z)) has this form.
+function exact_jacobian(z, p)
+    derivative = p.lambda + 2 * p.mu * z
+    a, b = real(derivative), imag(derivative)
+    return [a -b; b a]
+end
 
 mutable struct Spy
     plain::Int
@@ -37,7 +44,7 @@ partials_matrix(x::AbstractVector{<:Dual{T, V, N}}) where {T, V, N} =
 
 function spied(spy)
     return function (du, u, p, t)
-        du.z = (-p.a + p.b * im) * u.z + p.c * conj(u.z)
+        du.z = p.lambda * u.z + p.mu * u.z^2
         U, DU = rawdata(u), rawdata(du)
         if eltype(U) <: Dual
             spy.dual_u += 1
@@ -46,6 +53,8 @@ function spied(spy)
             Pu, Pdu = partials_matrix(U), partials_matrix(DU)
             push!(spy.widths, size(Pu, 2))
             spy.seeded .|= vec(any(!iszero, Pu; dims = 2))
+            z = complex(ForwardDiff.value(U[1]), ForwardDiff.value(U[2]))
+            J = exact_jacobian(z, p)
             err = norm(Pdu - J * Pu) / (norm(J) * norm(Pu))
             spy.max_jac_error = max(spy.max_jac_error, err)
         elseif t isa Dual
@@ -64,11 +73,14 @@ cases = [
     ("finite differences", DE.Rodas5P(autodiff = AutoFiniteDiff()), 0),
 ]
 
-# The exact solution of the real system is exp(J*t) * [real(z0), imag(z0)].
-exact = exp(J * tspan[end]) * rawdata(u0)
-println("Complex ODE: z' = (-a + ib)z + c*conj(z)")
+# Exact solution of z' = lambda*z + mu*z^2.
+z0 = u0.z
+e = exp(p.lambda * tspan[end])
+exact = z0 * e / (1 - (p.mu / p.lambda) * z0 * (e - 1))
+println("Holomorphic ODE: z' = lambda*z + mu*z^2")
 println("Initial real storage: ", rawdata(u0))
-println("Real Jacobian:\n", J)
+println("Complex derivative at z0: ", p.lambda + 2 * p.mu * z0)
+println("Corresponding real Jacobian:\n", exact_jacobian(z0, p))
 println()
 
 for (name, alg, width) in cases
@@ -77,10 +89,10 @@ for (name, alg, width) in cases
     # before cv_wrapper can pass it Dual-valued CollectionVectors.
     f = DE.ODEFunction{true, DE.SciMLBase.FullSpecialize}(spied(spy))
     prob = DE.ODEProblem(f, u0, tspan, p)
-    sol = DE.solve(prob, cv_wrapper(alg); reltol = 1e-9)
+    sol = DE.solve(prob, cv_wrapper(alg); reltol = 1e-9, abstol = (z = 1e-10 + 1e-10im,))
     @assert sol.retcode == DE.ReturnCode.Success "$name: solve failed"
-    solution_error = norm(rawdata(sol.u[end]) - exact)
-    @assert solution_error < 1e-6 "$name: solution differs from the exact real-system solution"
+    solution_error = abs(sol.u[end].z - exact)
+    @assert solution_error < 1e-8 "$name: solution differs from the exact complex solution"
     if width > 0
         @assert spy.dual_u > 0 "$name: no Dual state reached the ODE"
         @assert spy.widths == Set([width]) "$name: unexpected ForwardDiff chunk size"
