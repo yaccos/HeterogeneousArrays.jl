@@ -103,7 +103,7 @@ x.θ = 1.0u"m"         # DimensionError
 2.0 .* x .+ x
 ```
 
-Fields can hold real numbers, `Unitful` quantities or complex numbers. The storage can be any `isbits` number type, and `attach(shapeof(x), v)` wraps an existing vector `v` without copying it, for example a vector of `ForwardDiff.Dual`s. The broadcasting rules are described in [`HeterogeneousArrays.CollectionVectorStyle`](@ref).
+Fields can hold real numbers, `Unitful` quantities, complex numbers or complex `Unitful` quantities. The storage can be any `isbits` number type, and `attach(shapeof(x), v)` wraps an existing vector `v` without copying it, for example a vector of `ForwardDiff.Dual`s. The broadcasting rules are described in [`HeterogeneousArrays.CollectionVectorStyle`](@ref).
 
 Other element types can be stored by extending four functions. Since elements are read by reinterpreting their slots, every real-number component of the element type must be of the storage type:
 

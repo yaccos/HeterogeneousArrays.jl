@@ -35,9 +35,19 @@ using HeterogeneousArrays: HeterogeneousArrays, rawdata, shapeof, attach
     @test rawdata(a) ≈ [sqrt(5.0), sqrt(10.0), 2.0]
     r = CollectionVector(a = [1.0, 2.0], b = 3.0)
     c = @inferred((r -> r .+ 0im)(r))
-    @test shapeof(c) == (a = (1:4, HeterogeneousArrays.ComplexField()),
-        b = (5, HeterogeneousArrays.ComplexField()))
+    @test shapeof(c) == (a = (1:4, HeterogeneousArrays.ComplexField(nothing)),
+        b = (5, HeterogeneousArrays.ComplexField(nothing)))
     @test rawdata(c) == [1.0, 0.0, 2.0, 0.0, 3.0, 0.0]
+    # Complex quantities: the unit stays with the field, `abs` makes the field real
+    q = CollectionVector(z = [1.0 + 2im, 3.0 - 4im]u"m", s = (1.0 + 1im)u"s")
+    q2 = @inferred((q -> 2 .* q)(q))
+    @test shapeof(q2) == shapeof(q)
+    @test q2.z == [2.0 + 4im, 6.0 - 8im]u"m" && q2.s == (2.0 + 2im)u"s"
+    qa = @inferred((q -> abs.(q))(q))
+    @test shapeof(qa) == (z = (1:2, u"m"), s = (3, u"s"))
+    @test qa.z ≈ [sqrt(5.0), 5.0]u"m" && qa.s ≈ sqrt(2.0)u"s"
+    qc = @inferred((r -> r .* (1 + 0im))(CollectionVector(a = [1.0, 2.0]u"m")))
+    @test shapeof(qc) == (a = (1:4, HeterogeneousArrays.ComplexField(u"m")),)
 
     # Scalar, array and complex fields together
     m = CollectionVector(a = [1.0, 2.0]u"m", t = 3.0u"s", c = [1.0 + 2im], n = 4)
@@ -86,7 +96,7 @@ end
     @test_throws msg real_above.(CollectionVector(z = [3.0 + 4im, 1.0 + 1im]))
     # Real into complex converts
     zc = real_above.(CollectionVector(z = [1.0 + 1im, 3.0 + 4im]))
-    @test shapeof(zc) == (z = (1:4, HeterogeneousArrays.ComplexField()),)
+    @test shapeof(zc) == (z = (1:4, HeterogeneousArrays.ComplexField(nothing)),)
     @test zc.z == [1.0 + 1im, 5.0 + 0im]
     # Storage type
     # Float32 into Float64 and the opposite converts
@@ -244,10 +254,6 @@ end
     @test_throws "Cannot broadcast a CollectionVector with a 2-dimensional array" x .+
                                                                                   ones(3, 3)
     @test_throws "Field 'θ': the broadcast produces elements of type String, which CollectionVector does not support" string.(x)
-    # Complex results are storable only in unit-free fields
-    @test_throws "Field 'θ': the broadcast produces elements of type Quantity{ComplexF64" x .*
-                                                                                          (1 +
-                                                                                           0im)
     @test_throws Unitful.DimensionError x .+ 0im
     # In place, a result that does not convert into the destination field names the field
     # and the cause. Earlier fields keep their new values
