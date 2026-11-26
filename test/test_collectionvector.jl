@@ -39,8 +39,7 @@ using HeterogeneousArrays: HeterogeneousArrays, rawdata, shapeof, attach
         @test occursin("Field 'a'", e.msg) && occursin("element 2 is 9.5 kg", e.msg) &&
               occursin("DimensionError", e.msg)
         for bad in ([FakeQuantity(2.2, :kms)], [2.2]DynamicQuantities.us"km/s",
-            [2.2]DynamicQuantities.u"km/s",
-            [1.0 + 2im]u"m")
+            [2.2]DynamicQuantities.u"km/s")
             e = try
                 CollectionVector(a = bad)
             catch e
@@ -154,8 +153,8 @@ end
     c = CollectionVector(z = [1.0 + 2im, 3.0 + 4im], r = 5.0, s = 1.0 + 0im)
     @test rawdata(c) == [1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 0.0]        # two real slots per complex element
     @test eltype(rawdata(c)) == Float64
-    @test shapeof(c) == (z = (1:4, HeterogeneousArrays.ComplexField()),
-        r = (5, nothing), s = (6, HeterogeneousArrays.ComplexField()))
+    @test shapeof(c) == (z = (1:4, HeterogeneousArrays.ComplexField(nothing)),
+        r = (5, nothing), s = (6, HeterogeneousArrays.ComplexField(nothing)))
     @test length(c) == 7                                            # flat indexing counts slots
     @test eltype(c) == Float64
 
@@ -184,6 +183,61 @@ end
     # to be for mathematical reasons).
     cd = attach(shapeof(c), ForwardDiff.Dual.(rawdata(c), 1.0))
     @test cd.z[1] isa Complex{<:ForwardDiff.Dual}
+end
+
+@testset "CollectionVector: complex quantity fields" begin
+    x = CollectionVector(z = (1.0 + 2.0im)u"m", w = [3.0 - 1im, 0.5 + 0im]u"s", n = 4.0u"mol")
+    @test rawdata(x) == [1.0, 2.0, 3.0, -1.0, 0.5, 0.0, 4.0]        # real and imaginary parts
+    @test eltype(rawdata(x)) == Float64
+    @test shapeof(x) == (z = (1, HeterogeneousArrays.ComplexField(u"m")),
+        w = (3:6, HeterogeneousArrays.ComplexField(u"s")), n = (7, u"mol"))
+    @test typeof(x.z) == typeof((1.0 + 0im)u"m")
+    @test x.z === (1.0 + 2.0im)u"m"
+    @test x.w isa Base.ReinterpretArray && x.w[1] === (3.0 - 1.0im)u"s"
+    @test @inferred((v -> v.z)(x)) === (1.0 + 2.0im)u"m"
+    @test @inferred((v -> v.w[2])(x)) === (0.5 + 0.0im)u"s"
+
+    # Flat indexing reads and writes one real or imaginary part, with the field's unit
+    @test x[1] === 1.0u"m" && x[2] === 2.0u"m" && x[4] === -1.0u"s" && x[7] === 4.0u"mol"
+    x[2] = 50.0u"cm"
+    @test x.z === (1.0 + 0.5im)u"m"
+    @test_throws Unitful.DimensionError x[1] = 1.0u"s"
+    @test_throws Unitful.DimensionError x[1] = 1.0
+    # A plain complex field keeps raw parts through the flat face
+    @test CollectionVector(c = 1.0 + 2.0im)[2] === 2.0
+
+    # Property assignment converts units, or throws for a wrong dimension
+    x.z = (100.0 + 50.0im)u"cm"
+    @test x.z ≈ (1.0 + 0.5im)u"m"
+    x.w[2] = (1000.0 + 0im)u"ms"
+    @test x.w[2] ≈ (1.0 + 0im)u"s"
+    @test_throws Unitful.DimensionError x.z = (1.0 + 1im)u"s"
+    @test_throws Unitful.DimensionError x.z = 1.0 + 1im
+    x.z = 3.0u"m"                                                   # real into complex
+    @test x.z === (3.0 + 0.0im)u"m"
+    @test_throws InexactError x.n = (1.0 + 1im)u"mol"                # complex into real
+
+    # Construction converts array elements into the unit of the first, or throws
+    y = CollectionVector(z = [(1.0 + 1im)u"m", (100.0 + 0im)u"cm"])
+    @test y.z == [1.0 + 1im, 1.0 + 0im]u"m"
+    @test_throws "Field 'z': element 2" CollectionVector(z = [(1.0 + 1im)u"m", (1.0 + 0im)u"s"])
+
+    # Dual storage, as during ForwardDiff
+    xd = attach(shapeof(x), ForwardDiff.Dual.(rawdata(x), 1.0))
+    @test xd.z isa Unitful.Quantity{<:Complex{<:ForwardDiff.Dual}}
+    @test unit(xd.z) == u"m"
+    @test xd.w[1] isa Unitful.Quantity{<:Complex{<:ForwardDiff.Dual}}
+
+    # copyto! between complex quantity fields in different units converts
+    src = CollectionVector(z = (1.0 + 2.0im)u"cm", w = [1.0 + 1im, 2.0 - 2im]u"ms", n = 1.0u"mmol")
+    copyto!(x, src)
+    @test x.z ≈ (0.01 + 0.02im)u"m" && x.w ≈ [0.001 + 0.001im, 0.002 - 0.002im]u"s"
+    @test x.n ≈ 0.001u"mol"
+    @test shapeof(x) != shapeof(src)
+
+    s = sprint(show, MIME"text/plain"(), x)
+    @test occursin("z = (0.01+0.02im) m", s)
+    @test occursin("w = ComplexF64[0.001+0.001im, 0.002-0.002im] s", s)
 end
 
 @testset "CollectionVector: writes convert into the element type" begin

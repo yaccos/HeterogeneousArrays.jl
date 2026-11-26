@@ -49,11 +49,7 @@ derivative_shape(SU, tu, n = 1) = derivative_shape(SU, tu, Val(n))
 derivative_shape(SU, tu, ::Val{n}) where {n} = map(((slot, ft),) -> (slot, dunit(ft, tu^n)), SU)
 dunit(ft::Unitful.Units, d) = plain(ft / d)
 dunit(::Nothing, d) = plain(inv(d))
-function dunit(ft::ComplexField, d)
-    d == NoUnits || throw(ArgumentError(
-        "cv_wrapper: complex fields require unit-free time; complex quantities with units are not supported."))
-    return ft
-end
+dunit(cf::ComplexField, d) = ComplexField(dunit(cf.ft, d))
 plain(u) = u == NoUnits ? nothing : u
 
 # A time (or collection of times) as plain number(s) in the unit `tu`. Throws if the
@@ -109,11 +105,25 @@ function raw_abstol(SU, u0raw, tol)
     tol isa Real && throw(ArgumentError(
         "cv_wrapper: `abstol = $tol` has no unit. Give it per field with units, as a " *
         "NamedTuple like `(x = 1e-6u\"m\", v = 1e-6u\"m/s\")` or a CollectionVector."))
-    tol isa NamedTuple && (tol = CollectionVector(tol))
+    tol isa CollectionVector && (tol = NamedTuple(tol))
+    tol isa NamedTuple && (tol = CollectionVector(complex_tolerances(SU, tol)))
     out = attach(SU, similar(u0raw))
     copyto!(out, tol)
     return rawdata(out)
 end
+
+# A complex field stores the real and the imaginary part in separate slots, each with its
+# own tolerance. A real tolerance for a complex field (a field of `SU` with a `ComplexField`
+# field type) applies to both parts, and a complex tolerance applies separately.
+function complex_tolerances(SU, tol::NamedTuple)
+    vals = map(keys(tol), values(tol)) do name, v
+        haskey(SU, name) && getfield(SU, name)[2] isa ComplexField ? bothparts(v) : v
+    end
+    return NamedTuple{keys(tol)}(vals)
+end
+bothparts(v::AbstractArray) = map(bothparts, v)
+bothparts(v::Union{Real, Unitful.AbstractQuantity{<:Real}}) = v * (1 + im)
+bothparts(v) = v
 
 function raw_kwargs(SU, u0raw, tu; kwargs...)
     kw = Dict{Symbol, Any}(kwargs)

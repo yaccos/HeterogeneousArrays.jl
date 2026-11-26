@@ -33,18 +33,23 @@ wrong dimension into it throws a `DimensionError`.
 
 Since the solver only ever sees a plain `Vector`, solvers that need a Jacobian (implicit,
 Rosenbrock, BDF, ...) work, including with ForwardDiff.
-Complex fields are supported when time is unit-free; complex quantities with units are not
-supported. For an in-place, unit-free problem using ForwardDiff, construct its function with
-`ODEFunction{true, SciMLBase.FullSpecialize}(f!)`: SciML's default specialization can wrap
-the original function for plain inputs before `cv_wrapper` supplies Dual-valued states.
+Fields can hold complex numbers and complex quantities. They are stored as their real and
+imaginary parts, so the solver and its Jacobian work with respect to these real parts; the
+Jacobian is therefore also correct for a right-hand side that is not holomorphic (e.g. one
+using `conj` or `abs2`). For an in-place, unit-free problem using ForwardDiff, construct its
+function with `ODEFunction{true, SciMLBase.FullSpecialize}(f!)`: SciML's default
+specialization can wrap the original function for plain inputs before `cv_wrapper` supplies
+Dual-valued states.
 
 # Keyword arguments
 - `tspan` (in the problem) sets the unit of the independent variable. `dt`, `dtmin`, `dtmax`,
   `saveat`, `tstops` and `d_discontinuities` must have the same dimension.
 - `abstol` is given per field, as a `NamedTuple` (`(N = 1e-9u"mol", E = 1e-3u"J")`, with an
   array for an array field) or a `CollectionVector` with the same fields. A plain number is
-  rejected since its unit would be ambiguous. Without `abstol`, the solver default applies to
-  the raw values, i.e. in the units of the problem's `u0`.
+  rejected since its unit would be ambiguous. For a complex field, a real tolerance
+  (`(z = 1e-9u"m",)`) applies to both the real and the imaginary part, and a complex one
+  (`(z = (1e-9 + 1e-6im)u"m",)`) gives them separately. Without `abstol`, the solver default
+  applies to the raw values, i.e. in the units of the problem's `u0`.
 - `reltol` is a plain (dimensionless) number.
 - Callbacks are not supported yet and throw an error. Other keyword arguments are passed on
   to the solver unchanged.

@@ -88,14 +88,20 @@ function elementtype end
     Unitful.Quantity{T, Unitful.dimension(u), U}
 end
 
-# Complex numbers: two real slots per element, so the storage stays real (solvers and
-# ForwardDiff only ever see reals; the RHS sees `Complex{T}` through the reinterpret view).
-# TODO: support complex *quantities* (`[1+2im]u"m"`) (we require Unitful.AbstractQuantity{<:Real} above)
+# Complex numbers and complex quantities: two real slots per element, so the storage stays
+# real (solvers and ForwardDiff only ever see reals; the RHS sees `Complex{T}` or a
+# `Quantity{Complex{T}}` through the reinterpret view). The field type wraps the field type
+# shared by the real and imaginary parts: `ComplexField(nothing)` or `ComplexField(unit)`.
+struct ComplexField{FT}
+    ft::FT
+end
 @inline is_storable(::Type{<:Complex{<:Real}}) = true
+@inline is_storable(::Type{<:Unitful.AbstractQuantity{<:Complex{<:Real}}}) = true
 @inline rawtype(::Type{Complex{T}}) where {T} = T # storage eltype is the real part type
-struct ComplexField end
-@inline field_type(::Complex) = ComplexField()    # custom field type
-@inline elementtype(::Type{T}, ::ComplexField) where {T} = Complex{T}
+@inline rawtype(::Type{<:Unitful.AbstractQuantity{Complex{T}}}) where {T} = T
+@inline field_type(::Complex) = ComplexField(nothing)
+@inline field_type(q::Unitful.AbstractQuantity{<:Complex}) = ComplexField(unit(q))
+@inline elementtype(::Type{T}, cf::ComplexField) where {T} = elementtype(Complex{T}, cf.ft)
 
 # Constructor helpers built on the API
 firstelem(v::AbstractArray) = first(v)
@@ -233,8 +239,10 @@ end
 end
 @inline eltypeof(::Type{T}, ::Tuple{}) where {T} = Union{}
 # Flat indexing works slot by slot: inside a multi-slot element a single slot has no field
-# type of its own, so it is read as a raw number.
+# type of its own, so it is read as a raw number. A slot of a complex element is its real or
+# imaginary part, with the field type of the parts (e.g. the unit of a complex quantity).
 @inline flat_ft(::Type{T}, ft) where {T} = slotcount(T, ft) == 1 ? ft : nothing
+@inline flat_ft(::Type{T}, cf::ComplexField) where {T} = cf.ft
 # Number of storage slots one element of field type `ft` occupies
 @inline slotcount(::Type{T}, ft) where {T} = sizeof(elementtype(T, ft)) ÷ sizeof(T)
 
@@ -528,10 +536,14 @@ function Base.show(io::IO, ::MIME"text/plain", x::CollectionVector{T, S}) where 
 end
 
 show_field(io, data, i::Int, ft) = show(io, materialize_field(data, i, ft))
+# Array fields with a unit: print the unit-free values with the unit once, avoiding the
+# parametric eltype noise of Vector{Quantity{...}} display.
 function show_field(io, data, r::UnitRange{Int}, ft::Unitful.Units)
-    # Print raw values with the unit once, avoiding the parametric eltype noise
-    # of Vector{Quantity{...}} display.
     show(io, data[r])
     print(io, " ", ft)
+end
+function show_field(io, data, r::UnitRange{Int}, cf::ComplexField{<:Unitful.Units})
+    show(io, collect(slotview(data, r, ComplexField(nothing))))
+    print(io, " ", cf.ft)
 end
 show_field(io, data, r::UnitRange{Int}, ft) = show(io, materialize_field(data, r, ft))
