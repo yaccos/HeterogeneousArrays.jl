@@ -109,11 +109,25 @@ function raw_abstol(SU, u0raw, tol)
     tol isa Real && throw(ArgumentError(
         "cv_wrapper: `abstol = $tol` has no unit. Give it per field with units, as a " *
         "NamedTuple like `(x = 1e-6u\"m\", v = 1e-6u\"m/s\")` or a CollectionVector."))
-    tol isa NamedTuple && (tol = CollectionVector(tol))
+    tol isa CollectionVector && (tol = NamedTuple(tol))
+    tol isa NamedTuple && (tol = CollectionVector(complex_tolerances(SU, tol)))
     out = attach(SU, similar(u0raw))
     copyto!(out, tol)
     return rawdata(out)
 end
+
+# A complex field stores the real and the imaginary part in separate slots, each with its
+# own tolerance. A real tolerance for a complex field (a field of `SU` with a `ComplexField`
+# field type) applies to both parts, and a complex tolerance applies separately.
+function complex_tolerances(SU, tol::NamedTuple)
+    vals = map(keys(tol), values(tol)) do name, v
+        haskey(SU, name) && getfield(SU, name)[2] isa ComplexField ? bothparts(v) : v
+    end
+    return NamedTuple{keys(tol)}(vals)
+end
+bothparts(v::AbstractArray) = map(bothparts, v)
+bothparts(v::Union{Real, Unitful.AbstractQuantity{<:Real}}) = v * (1 + im)
+bothparts(v) = v
 
 function raw_kwargs(SU, u0raw, tu; kwargs...)
     kw = Dict{Symbol, Any}(kwargs)

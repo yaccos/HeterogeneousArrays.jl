@@ -40,6 +40,28 @@ end
         @test sol_vector.u[end].z ≈ z0s .* exp(-2 + 3im) rtol = 1e-6
     end
 
+    @testset "complex abstol" begin
+        Ext = Base.get_extension(HeterogeneousArrays, :HeterogeneousArraysSciMLBaseExt)
+        U = CollectionVector(z = (1.0 + 2.0im)u"m", w = [1.0 + 0im, 2.0 + 0im], x = 1.0u"s")
+        SU, raw = HeterogeneousArrays.shapeof(U), HeterogeneousArrays.rawdata(U)
+        # A real tolerance applies to both parts of a complex field
+        @test Ext.raw_abstol(SU, raw, (z = 1e-10u"m", w = [1e-3, 1e-4], x = 1e-6u"s")) ≈
+              [1e-10, 1e-10, 1e-3, 1e-3, 1e-4, 1e-4, 1e-6]
+        @test Ext.raw_abstol(SU, raw,
+            CollectionVector(z = 1e-8u"cm", w = [1e-3, 1e-4], x = 1e-3u"ms")) ≈
+              [1e-10, 1e-10, 1e-3, 1e-3, 1e-4, 1e-4, 1e-6]
+        # A complex tolerance sets the parts separately
+        @test Ext.raw_abstol(SU, raw,
+            (z = (1e-8 + 2e-8im)u"cm", w = [1e-3 + 1e-2im, 1e-4 + 2e-4im], x = 1e-6u"s")) ≈
+              [1e-10, 2e-10, 1e-3, 1e-2, 1e-4, 2e-4, 1e-6]
+        @test_throws "has no unit" Ext.raw_abstol(SU, raw, 1e-6)
+        @test_throws "different field names" Ext.raw_abstol(SU, raw, (z = 1e-10u"m",))
+        @test_throws "different field lengths" Ext.raw_abstol(SU, raw,
+            (z = 1e-10u"m", w = [1e-3], x = 1e-6u"s"))
+        @test_throws Unitful.DimensionError Ext.raw_abstol(SU, raw,
+            (z = 1e-10u"s", w = [1e-3, 1e-4], x = 1e-6u"s"))
+    end
+
     u0 = CollectionVector(N = 1.0u"mol", E = 0.0u"J")
     p = (k = 1.0e-3u"s^-1", e = 5.0e4u"J/mol")
     tol = (N = 1.0e-10u"mol", E = 1.0e-5u"J")
