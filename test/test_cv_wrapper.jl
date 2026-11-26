@@ -1,6 +1,7 @@
 using DifferentialEquations
 using LSODA: lsoda
 using ADTypes: AutoFiniteDiff
+using ForwardDiff: ForwardDiff
 using SciMLBase: SciMLBase, ReturnCode
 
 # Exponential decay N -> energy E, with an exact solution
@@ -16,6 +17,7 @@ end
 
 @testset "cv_wrapper" begin
     @testset "complex fields" begin
+        # Plain complex field, unit-free time
         complex_rhs!(du, u, p, t) = (du.z = (-2 + 3im) * u.z; nothing)
         complex_rhs(u, p, t) = CollectionVector(z = (-2 + 3im) * u.z)
         z0 = 1.0 + 2.0im
@@ -27,10 +29,7 @@ end
             @test sol_complex.u[end].z ≈ z0 * exp(-2 + 3im) rtol = 1e-6
             @test sol_complex(0.5).z ≈ z0 * exp((-2 + 3im) * 0.5) rtol = 1e-6
             @test sol_complex(0.5, Val{1}).z ≈ (-2 + 3im) * z0 * exp((-2 + 3im) * 0.5) rtol = 1e-5
-            prob_unitful_time = ODEProblem(f, CollectionVector(z = z0), (0.0u"s", 1.0u"s"))
-            @test_throws ArgumentError solve(prob_unitful_time, cv_wrapper(Rodas5P()))
         end
-
         vector_rhs!(du, u, p, t) = (du.z .= (-2 + 3im) .* u.z; nothing)
         vector_f = ODEFunction{true, SciMLBase.FullSpecialize}(vector_rhs!)
         z0s = [z0, 3.0 - 4.0im]
@@ -38,6 +37,85 @@ end
         sol_vector = solve(prob_vector, cv_wrapper(Rodas5P()); reltol = 1e-9)
         @test sol_vector.retcode == ReturnCode.Success
         @test sol_vector.u[end].z ≈ z0s .* exp(-2 + 3im) rtol = 1e-6
+        # Plain complex field, unitful time: du.z is in s^-1
+        rate!(du, u, p, t) = (du.z .= (-2 + 3im)u"s^-1" .* u.z; nothing)
+        prob_rate = ODEProblem(rate!, CollectionVector(z = z0s), (0.0u"s", 1.0u"s"))
+        sol_rate = solve(prob_rate, cv_wrapper(Rodas5P()); reltol = 1e-9)
+        @test sol_rate.u[end].z ≈ z0s .* exp(-2 + 3im) rtol = 1e-6
+        @test unit(sol_rate(0.5u"s", Val{1}).z[1]) == u"s^-1"
+    end
+
+    @testset "complex quantity fields" begin
+        # z' = λz + μz², with z in m and t in s, has an exact solution
+        p = (λ = (-1000.0 + 10.0im)u"s^-1", μ = (0.5 + 0.25im)u"m^-1*s^-1")
+        z0 = (1.0 + 2.0im)u"m"
+        function z_exact(t)
+            e = exp(p.λ * t)
+            return z0 * e / (1 - (p.μ / p.λ) * z0 * (e - 1))
+        end
+        seen = Set{Type}()  # types of `u.z` the right-hand side is called with
+        function riccati!(du, u, p, t)
+            push!(seen, typeof(u.z))
+            du.z = p.λ * u.z + p.μ * u.z^2
+            return nothing
+        end
+        riccati(u, p, t) = CollectionVector(z = p.λ * u.z + p.μ * u.z^2)
+        tspan = (0.0u"s", 0.01u"s")
+        tol = (z = 1e-10u"m",)
+        dual_z = Unitful.Quantity{<:Complex{<:ForwardDiff.Dual}}
+        for (alg, uses_duals) in ((Rodas5P(), true), (Rodas5P(autodiff = AutoFiniteDiff()), false))
+            empty!(seen)
+            prob = ODEProblem(riccati!, CollectionVector(z = z0), tspan, p)
+            sol = solve(prob, cv_wrapper(alg); reltol = 1e-9, abstol = tol)
+            @test sol.retcode == ReturnCode.Success
+            @test abs(sol.u[end].z - z_exact(tspan[2])) < 1e-9u"m"
+            # ForwardDiff differentiates through the complex quantity, finite differences not
+            @test any(T -> T <: dual_z, seen) == uses_duals
+            @test unit(sol(5u"ms").z) == u"m"
+            @test unit(sol(5u"ms", Val{1}).z) == u"m/s"
+            @test isapprox(sol(5u"ms").z, z_exact(5u"ms"); rtol = 1e-5)
+            @test isapprox(sol(5u"ms", Val{1}).z, riccati(sol(5u"ms"), p, 5u"ms").z;
+                rtol = 1e-3)
+            prob_oop = ODEProblem(riccati, CollectionVector(z = z0), tspan, p)
+            sol_oop = solve(prob_oop, cv_wrapper(alg); reltol = 1e-9, abstol = tol)
+            @test abs(sol_oop.u[end].z - z_exact(tspan[2])) < 1e-9u"m"
+        end
+        # Array field
+        riccati_vec!(du, u, p, t) = (du.z .= p.λ .* u.z .+ p.μ .* u.z .^ 2; nothing)
+        prob_vec = ODEProblem(riccati_vec!, CollectionVector(z = [z0, z0]), tspan, p)
+        sol_vec = solve(prob_vec, cv_wrapper(Rodas5P()); reltol = 1e-9,
+            abstol = (z = [1e-10, 1e-10]u"m",))
+        @test all(z -> abs(z - z_exact(tspan[2])) < 1e-9u"m", sol_vec.u[end].z)
+
+        # Right-hand side that is not holomorphic: the Jacobian with respect to the real and
+        # imaginary parts is not that of a complex derivative, and ForwardDiff must still get
+        # it right
+        function nonholo!(du, u, p, t)
+            du.z = -1000u"s^-1" * u.z + 5u"s^-1" * conj(u.z) +
+                   1im * 0.3u"m^-2*s^-1" * abs2(u.z) * u.z
+            return nothing
+        end
+        prob_nh = ODEProblem(nonholo!, CollectionVector(z = z0), tspan)
+        sols = [solve(prob_nh, cv_wrapper(alg); reltol = 1e-10, abstol = tol)
+                for alg in (Rodas5P(), Rodas5P(autodiff = AutoFiniteDiff()), Tsit5())]
+        @test all(sol -> sol.retcode == ReturnCode.Success, sols)
+        @test abs(sols[1].u[end].z - sols[3].u[end].z) < 1e-9u"m"
+        @test abs(sols[1].u[end].z - sols[2].u[end].z) < 1e-9u"m"
+        Ext = Base.get_extension(HeterogeneousArrays, :HeterogeneousArraysSciMLBaseExt)
+        SU = HeterogeneousArrays.shapeof(prob_nh.u0)
+        rhs = Ext.RawRHS{true, SU, Ext.derivative_shape(SU, u"s"), typeof(nonholo!), u"s"}(
+            nonholo!)
+        x = [0.3, -0.7]
+        J = ForwardDiff.jacobian((du, u) -> rhs(du, u, nothing, 0.0), similar(x), x)
+        h = 1e-6
+        J_fd = reduce(hcat, map(1:2) do j
+            e = h * (1:2 .== j)
+            dp, dm = similar(x), similar(x)
+            rhs(dp, x .+ e, nothing, 0.0)
+            rhs(dm, x .- e, nothing, 0.0)
+            (dp .- dm) ./ 2h
+        end)
+        @test J ≈ J_fd rtol = 1e-6
     end
 
     @testset "complex abstol" begin

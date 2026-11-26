@@ -49,11 +49,7 @@ derivative_shape(SU, tu, n = 1) = derivative_shape(SU, tu, Val(n))
 derivative_shape(SU, tu, ::Val{n}) where {n} = map(((slot, ft),) -> (slot, dunit(ft, tu^n)), SU)
 dunit(ft::Unitful.Units, d) = plain(ft / d)
 dunit(::Nothing, d) = plain(inv(d))
-function dunit(ft::ComplexField, d)
-    d == NoUnits || throw(ArgumentError(
-        "cv_wrapper: complex fields require unit-free time; complex quantities with units are not supported."))
-    return ft
-end
+dunit(cf::ComplexField, d) = ComplexField(dunit(cf.ft, d))
 plain(u) = u == NoUnits ? nothing : u
 
 # A time (or collection of times) as plain number(s) in the unit `tu`. Throws if the
